@@ -1,3 +1,5 @@
+#include <ctype.h>
+#include <db4/db.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <netinet/in.h>
@@ -8,15 +10,30 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include "shared.h"
+#include "hashtable.h"
+
+#define BUFFER_LEN 8192
+#define BIGBUFSIZ 32768
 
 enum descr_flags {
 	DF_CONNECTED = 1,
+};
+
+typedef struct entity {
+	int fd;
+	unsigned flags;
+} ENT;
+
+union specific {
+	ENT entity;
 };
 
 typedef struct object {
 	double position[3];
 	unsigned world;
 	char *name;
+
+	union specific sp;
 } OBJ;
 
 typedef struct descr_st {
@@ -24,14 +41,37 @@ typedef struct descr_st {
 	OBJ *player;
 } descr_t;
 
+typedef struct {
+	OBJ *player;
+	int fd, argc;
+	char *argv[8];
+} command_t;
+
+typedef void core_command_cb_t(command_t *);
+
+enum command_flags {
+	CF_NOAUTH = 1,
+	/* CF_EOL = 2, */
+        CF_NOARGS = 4,
+};
+
+typedef struct {
+	char *name;
+	/* size_t nargs; */
+	core_command_cb_t *cb;
+	int flags;
+} core_command_t;
+
 struct pkg_head {
 	int type;
 };
 
-fd_set readfds, activefds, writefds;
+fd_set readfds, activefds, writefds, xfds;
 descr_t descr_map[FD_SETSIZE];
 int shutdown_flag = 0;
 int sockfd;
+
+DB *cmdsdb = NULL;
 
 void sig_shutdown(int i)
 {
@@ -74,8 +114,15 @@ make_socket(int port)
 		exit(4);
 	}
 
+	if (fcntl(sockfd, F_SETOWN, getpid()) == -1) {
+		perror("F_SETOWN socket");
+		close(sockfd);
+		exit(5);
+	}
+
 	FD_ZERO(&readfds);
 	FD_ZERO(&writefds);
+	FD_ZERO(&xfds);
 	FD_SET(sockfd, &readfds);
 	descr_map[0].fd = sockfd;
 
@@ -132,13 +179,143 @@ descr_close(descr_t *d)
 		memset(d, 0, sizeof(descr_t));
 }
 
+core_command_t *
+command_match(command_t *cmd) {
+	return hash_get(cmdsdb, cmd->argv[0]);
+}
+
+static command_t
+command_new(descr_t *d, char *input, size_t len)
+{
+	command_t cmd;
+	register char *p = input;
+
+	p[len] = '\0';
+	cmd.player = d->player;
+	cmd.fd = d->fd;
+	cmd.argc = 0;
+
+	if (!*p || !isprint(*p))
+		return cmd;
+
+	cmd.argv[0] = p;
+	cmd.argc++;
+
+	for (; p < input + len && *p != ' '; p++)
+		;
+
+	if (*p == ' ') {
+		*p = '\0';
+		cmd.argv[cmd.argc] = p + 1;
+		core_command_t *cmd_i = command_match(&cmd);
+		cmd.argc ++;
+
+		if (cmd_i && cmd_i->flags & CF_NOARGS)
+			goto cleanup;
+
+		for (; p < input + len; p++) {
+			if (*p != '=')
+				continue;
+
+			*p = '\0';
+
+			cmd.argv[cmd.argc] = p + 1;
+			cmd.argc ++;
+		}
+	}
+
+cleanup:
+	for (int i = cmd.argc;
+	     i < sizeof(cmd.argv) / sizeof(char *);
+	     i++)
+
+		cmd.argv[i] = "";
+
+	return cmd;
+}
+
+void
+command_debug(command_t *cmd, char *label)
+{
+	char **arg;
+
+	warn("command_debug '%s' %d", label, cmd->argc);
+	for (arg = cmd->argv;
+	     arg < cmd->argv + cmd->argc;
+	     arg++)
+	{
+		warn(" '%s'", *arg);
+	}
+	warn("\n");
+}
+
+void
+command_process(command_t *cmd)
+{
+	if (cmd->argc < 1)
+		return;
+
+	core_command_t *cmd_i = command_match(cmd);
+	int descr = cmd->fd;
+
+	descr_t *d = &descr_map[descr];
+
+	if (!(d->flags & DF_CONNECTED)) {
+		if (cmd_i && (cmd_i->flags & CF_NOAUTH))
+			cmd_i->cb(cmd);
+		return;
+	}
+
+	OBJ *player = cmd->player;
+	ENT *eplayer = &player->sp.entity;
+
+	command_debug(cmd, "command_process");
+
+	// set current descriptor (needed for death)
+	eplayer->fd = descr;
+
+	if (cmd_i)
+		cmd_i->cb(cmd);
+}
+
 int
 descr_read(descr_t *d)
+{
+	char buf[BUFFER_LEN];
+	int ret;
+
+	ret = recv(d->fd, &buf, sizeof(buf), 0);
+	switch (ret) {
+	case -1:
+		if (errno == EAGAIN)
+			return 0;
+
+		perror("descr_read");
+		/* BUG("descr_read %s", strerror(errno)); */
+	case 0:
+	case 1:
+		return -1;
+	}
+	ret -= 2;
+	buf[ret] = '\0';
+
+	command_t cmd = command_new(d, buf, ret);
+
+	if (!cmd.argc)
+		return 0;
+
+	command_process(&cmd);
+
+	return ret;
+}
+
+int
+descr_read_oob(descr_t *d)
 {
 	struct pkg_head head;
 	int ret;
 
-	ret = read(d->fd, &head, sizeof(head));
+	ret = recv(d->fd, &head, sizeof(head), MSG_OOB);
 	switch (ret) {
 	case -1:
 		if (errno == EAGAIN)
@@ -157,7 +334,6 @@ descr_read(descr_t *d)
 int
 main(int argc, char **argv)
 {
-	register char c;
 	int sockfd = make_socket(1988);
 	struct timeval timeout;
 	descr_t *d;
@@ -170,12 +346,14 @@ main(int argc, char **argv)
 	signal(SIGUSR1, SIG_DFL);
 	signal(SIGTERM, sig_shutdown);
 
+	hash_init(&cmdsdb);
+
 	while (shutdown_flag == 0) {
 		timeout.tv_sec = 1;
 		timeout.tv_usec = 0;
 
 		readfds = activefds;
-		int select_n = select(FD_SETSIZE, &readfds, NULL, NULL, &timeout);
+		int select_n = select(FD_SETSIZE, &readfds, NULL, &xfds, &timeout);
 
 		switch (select_n) {
 		case -1:
@@ -195,6 +373,11 @@ main(int argc, char **argv)
 		for (d = descr_map, i = 0;
 		     d < descr_map + FD_SETSIZE;
 		     d++, i++) {
+			if (FD_ISSET(i, &xfds) && i != sockfd) {
+				if (descr_read_oob(d) < 0)
+					descr_close(d);
+			}
+
 			if (!FD_ISSET(i, &readfds))
 				continue;
 
