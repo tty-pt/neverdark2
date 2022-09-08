@@ -1,3 +1,4 @@
+#include <arpa/inet.h>
 #include <ctype.h>
 #include <db4/db.h>
 #include <errno.h>
@@ -14,10 +15,6 @@
 
 #define BUFFER_LEN 8192
 #define BIGBUFSIZ 32768
-
-enum descr_flags {
-	DF_CONNECTED = 1,
-};
 
 typedef struct entity {
 	int fd;
@@ -37,7 +34,7 @@ typedef struct object {
 } OBJ;
 
 typedef struct descr_st {
-	int fd, flags;
+	int fd;
 	OBJ *player;
 } descr_t;
 
@@ -57,7 +54,6 @@ enum command_flags {
 
 typedef struct {
 	char *name;
-	/* size_t nargs; */
 	core_command_cb_t *cb;
 	int flags;
 } core_command_t;
@@ -66,10 +62,11 @@ struct pkg_head {
 	int type;
 };
 
-fd_set readfds, activefds, writefds, xfds;
+fd_set readfds, activefds, xfds;
 descr_t descr_map[FD_SETSIZE];
 int shutdown_flag = 0;
 int sockfd;
+unsigned select_tick = 0;
 
 DB *cmdsdb = NULL;
 
@@ -98,11 +95,11 @@ make_socket(int port)
 		exit(1);
 	}
 
-	opt = 1;
-	if (setsockopt(sockfd, SOL_SOCKET, SO_KEEPALIVE, (char *) &opt, sizeof(opt)) < 0) {
-		perror("setsockopt");
-		exit(1);
-	}
+	/* opt = 1; */
+	/* if (setsockopt(sockfd, SOL_SOCKET, SO_KEEPALIVE, (char *) &opt, sizeof(opt)) < 0) { */
+	/* 	perror("setsockopt"); */
+	/* 	exit(1); */
+	/* } */
 
 	server.sin_family = AF_INET;
 	server.sin_addr.s_addr = INADDR_ANY;
@@ -114,17 +111,10 @@ make_socket(int port)
 		exit(4);
 	}
 
-	if (fcntl(sockfd, F_SETOWN, getpid()) == -1) {
-		perror("F_SETOWN socket");
-		close(sockfd);
-		exit(5);
-	}
-
 	FD_ZERO(&readfds);
-	FD_ZERO(&writefds);
 	FD_ZERO(&xfds);
-	FD_SET(sockfd, &readfds);
-	descr_map[0].fd = sockfd;
+	FD_SET(sockfd, &activefds);
+	/* descr_map[0].fd = sockfd; */
 
 	listen(sockfd, 5);
 	return sockfd;
@@ -152,10 +142,15 @@ descr_new()
 	d->fd = fd;
 	d->player = NULL;
 
-	if (fcntl(fd, F_SETFL, O_NONBLOCK) == -1) {
-		perror("make_nonblocking: fcntl");
-		abort();
-	}
+	/* if (fcntl(fd, F_SETFL, O_NONBLOCK) == -1) { */
+	/* 	perror("make_nonblocking: fcntl"); */
+	/* 	abort(); */
+	/* } */
+
+	/* if (fcntl(fd, F_SETOWN, getpid()) == -1) { */
+	/* 	perror("F_SETOWN socket"); */
+	/* 	abort(); */
+	/* } */
 
 	return d;
 }
@@ -163,14 +158,14 @@ descr_new()
 void
 descr_close(descr_t *d)
 {
-	if (d->flags & DF_CONNECTED) {
-		warn("%s disconnects on fd %d\n",
-		     d->player->name, d->fd);
+	if (d->player) {
+		warn("fd %d disconnects (%s)\n",
+		     d->fd, d->player->name);
 
-		d->flags = 0;
+		/* d->flags = 0; */
 		d->player = NULL;
 	} else
-		warn("%d never connected\n", d->fd);
+		warn("fd %d diconnects\n", d->fd);
 
 	shutdown(d->fd, 2);
 	close(d->fd);
@@ -260,7 +255,7 @@ command_process(command_t *cmd)
 
 	descr_t *d = &descr_map[descr];
 
-	if (!(d->flags & DF_CONNECTED)) {
+	if (!d->player) {
 		if (cmd_i && (cmd_i->flags & CF_NOAUTH))
 			cmd_i->cb(cmd);
 		return;
@@ -284,7 +279,7 @@ descr_read(descr_t *d)
 	char buf[BUFFER_LEN];
 	int ret;
 
-	ret = recv(d->fd, &buf, sizeof(buf), 0);
+	ret = recv(d->fd, buf, sizeof(buf), 0);
 	switch (ret) {
 	case -1:
 		if (errno == EAGAIN)
@@ -348,12 +343,17 @@ main(int argc, char **argv)
 
 	hash_init(&cmdsdb);
 
+	warn("listening\n");
 	while (shutdown_flag == 0) {
 		timeout.tv_sec = 1;
 		timeout.tv_usec = 0;
 
 		readfds = activefds;
+		xfds = activefds;
 		int select_n = select(FD_SETSIZE, &readfds, NULL, &xfds, &timeout);
+		/* if (select_tick > 2) */
+		/* 	return 0; */
+		/* select_tick++; */
 
 		switch (select_n) {
 		case -1:
