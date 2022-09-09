@@ -13,15 +13,16 @@
 #include "shared.h"
 #include "hashtable.h"
 
+#define TEXT_LEN 128
 #define BUFFER_LEN 8192
 #define BIGBUFSIZ 32768
 
 typedef struct entity {
-	int fd;
+	struct sockaddr *addr;
 	unsigned flags;
 } ENT;
 
-union specific {
+union object_specific {
 	ENT entity;
 };
 
@@ -30,17 +31,17 @@ typedef struct object {
 	unsigned world;
 	char *name;
 
-	union specific sp;
+	union object_specific sp;
 } OBJ;
 
 typedef struct descr_st {
-	int fd;
+	struct sockaddr addr;
 	OBJ *player;
 } descr_t;
 
 typedef struct {
-	OBJ *player;
-	int fd, argc;
+	descr_t *descr;
+	int argc;
 	char *argv[8];
 } command_t;
 
@@ -58,17 +59,20 @@ typedef struct {
 	int flags;
 } core_command_t;
 
-struct pkg_head {
-	int type;
-};
-
-fd_set readfds, activefds, xfds;
-descr_t descr_map[FD_SETSIZE];
 int shutdown_flag = 0;
 int sockfd;
 unsigned select_tick = 0;
 
 DB *cmdsdb = NULL;
+DB *ddb = NULL;
+
+core_command_t cmds[] = {
+	/* { */
+	/* 	.name = "auth", */
+	/* 	.cb = &do_auth, */
+	/* 	.flags = CF_NOAUTH, */
+	/* } */
+};
 
 void sig_shutdown(int i)
 {
@@ -82,7 +86,7 @@ make_socket(int port)
 	int opt;
 	struct sockaddr_in server;
 
-	sockfd = socket(AF_INET, SOCK_STREAM, 0);
+	sockfd = socket(AF_INET, SOCK_DGRAM, 0);
 
 	if (sockfd < 0) {
 		perror("creating stream socket");
@@ -111,72 +115,13 @@ make_socket(int port)
 		exit(4);
 	}
 
-	FD_ZERO(&readfds);
-	FD_ZERO(&xfds);
-	FD_SET(sockfd, &activefds);
-	/* descr_map[0].fd = sockfd; */
-
 	listen(sockfd, 5);
 	return sockfd;
 }
 
-descr_t *
-descr_new()
-{
-	struct sockaddr_in addr;
-	socklen_t addr_len = (socklen_t)sizeof(addr);
-	int fd = accept(sockfd, (struct sockaddr *) &addr, &addr_len);
-	descr_t *d;
-
-	if (fd <= 0) {
-		perror("descr_new");
-		return NULL;
-	}
-
-	warn("accept %d\n", fd);
-
-	FD_SET(fd, &activefds);
-
-	d = &descr_map[fd];
-	memset(d, 0, sizeof(descr_t));
-	d->fd = fd;
-	d->player = NULL;
-
-	/* if (fcntl(fd, F_SETFL, O_NONBLOCK) == -1) { */
-	/* 	perror("make_nonblocking: fcntl"); */
-	/* 	abort(); */
-	/* } */
-
-	/* if (fcntl(fd, F_SETOWN, getpid()) == -1) { */
-	/* 	perror("F_SETOWN socket"); */
-	/* 	abort(); */
-	/* } */
-
-	return d;
-}
-
-void
-descr_close(descr_t *d)
-{
-	if (d->player) {
-		warn("fd %d disconnects (%s)\n",
-		     d->fd, d->player->name);
-
-		/* d->flags = 0; */
-		d->player = NULL;
-	} else
-		warn("fd %d diconnects\n", d->fd);
-
-	shutdown(d->fd, 2);
-	close(d->fd);
-	FD_CLR(d->fd, &activefds);
-	if (d)
-		memset(d, 0, sizeof(descr_t));
-}
-
 core_command_t *
 command_match(command_t *cmd) {
-	return hash_get(cmdsdb, cmd->argv[0]);
+	return svhash_get(cmdsdb, cmd->argv[0]);
 }
 
 static command_t
@@ -186,8 +131,7 @@ command_new(descr_t *d, char *input, size_t len)
 	register char *p = input;
 
 	p[len] = '\0';
-	cmd.player = d->player;
-	cmd.fd = d->fd;
+	cmd.descr = d;
 	cmd.argc = 0;
 
 	if (!*p || !isprint(*p))
@@ -251,9 +195,8 @@ command_process(command_t *cmd)
 		return;
 
 	core_command_t *cmd_i = command_match(cmd);
-	int descr = cmd->fd;
 
-	descr_t *d = &descr_map[descr];
+	descr_t *d = cmd->descr;
 
 	if (!d->player) {
 		if (cmd_i && (cmd_i->flags & CF_NOAUTH))
@@ -261,130 +204,79 @@ command_process(command_t *cmd)
 		return;
 	}
 
-	OBJ *player = cmd->player;
+	OBJ *player = cmd->descr->player;
 	ENT *eplayer = &player->sp.entity;
 
 	command_debug(cmd, "command_process");
 
 	// set current descriptor (needed for death)
-	eplayer->fd = descr;
+	eplayer->addr = &cmd->descr->addr;
 
 	if (cmd_i)
 		cmd_i->cb(cmd);
 }
 
-int
-descr_read(descr_t *d)
-{
-	char buf[BUFFER_LEN];
-	int ret;
+static inline void
+commands_init() {
+	int i;
 
-	ret = recv(d->fd, buf, sizeof(buf), 0);
-	switch (ret) {
-	case -1:
-		if (errno == EAGAIN)
-			return 0;
+	db_init(&cmdsdb, DB_HASH);
 
-		perror("descr_read");
-		/* BUG("descr_read %s", strerror(errno)); */
-	case 0:
-	case 1:
-		return -1;
-	}
-	ret -= 2;
-	buf[ret] = '\0';
+	for (i = 0; i < sizeof(cmds) / sizeof(core_command_t); i++)
+		svhash_put(cmdsdb, cmds[i].name, &cmds[i]);
 
-	command_t cmd = command_new(d, buf, ret);
-
-	if (!cmd.argc)
-		return 0;
-
-	command_process(&cmd);
-
-	return ret;
-}
-
-int
-descr_read_oob(descr_t *d)
-{
-	struct pkg_head head;
-	int ret;
-
-	ret = recv(d->fd, &head, sizeof(head), MSG_OOB);
-	switch (ret) {
-	case -1:
-		if (errno == EAGAIN)
-			return 0;
-
-		perror("descr_read");
-		/* BUG("descr_read %s", strerror(errno)); */
-	case 0:
-	case 1:
-		return -1;
-	}
-
-	return ret;
 }
 
 int
 main(int argc, char **argv)
 {
+	struct sockaddr_in cliaddr;
 	int sockfd = make_socket(1988);
-	struct timeval timeout;
-	descr_t *d;
-	int i;
-
-	memset(descr_map, 0, sizeof(descr_map));
+	struct pkg pkg;
 
 	signal(SIGPIPE, SIG_IGN);
 	signal(SIGHUP, SIG_IGN);
 	signal(SIGUSR1, SIG_DFL);
 	signal(SIGTERM, sig_shutdown);
 
-	hash_init(&cmdsdb);
+	commands_init();
+	db_init(&ddb, DB_BTREE);
 
 	warn("listening\n");
 	while (shutdown_flag == 0) {
-		timeout.tv_sec = 1;
-		timeout.tv_usec = 0;
+		/* const buf[BUFSIZ]; */
+		memset(&cliaddr, 0, sizeof(cliaddr));
 
-		readfds = activefds;
-		xfds = activefds;
-		int select_n = select(FD_SETSIZE, &readfds, NULL, &xfds, &timeout);
-		/* if (select_tick > 2) */
-		/* 	return 0; */
-		/* select_tick++; */
+		unsigned len = sizeof(cliaddr);
 
-		switch (select_n) {
-		case -1:
-			switch (errno) {
-			case EAGAIN:
-				return 0;
-			case EINTR:
-				continue;
+		/* if (recvfrom(sockfd, buf, sizeof(buf), 0, */
+		if (recvfrom(sockfd, &pkg, sizeof(pkg), 0,
+			 (struct sockaddr *) &cliaddr, (socklen_t *) &len) >= 0)
+		{
+			// received a message
+			descr_t d;
+
+			if (db_get(ddb, &d, &cliaddr, sizeof(cliaddr))) {
+				// client not found in our local database
+				d.player = NULL;
+				memcpy(&d.addr, &cliaddr, sizeof(cliaddr));
+
+				db_put(ddb, &cliaddr, sizeof(cliaddr), &d, sizeof(d));
 			}
 
-			perror("select");
-			return -1;
-		case 0:
-			continue;
-		}
+			// process message
+			warn("Received package type %u\n", pkg.type);
+			switch (pkg.type) {
+			case PT_TEXT: {
+				command_t cmd = command_new(&d, pkg.sp.text, strlen(pkg.sp.text));
+				warn("TEXT: %s\n", pkg.sp.text);
 
-		for (d = descr_map, i = 0;
-		     d < descr_map + FD_SETSIZE;
-		     d++, i++) {
-			if (FD_ISSET(i, &xfds) && i != sockfd) {
-				if (descr_read_oob(d) < 0)
-					descr_close(d);
+				if (!cmd.argc)
+					return 0;
+
+				command_process(&cmd);
 			}
-
-			if (!FD_ISSET(i, &readfds))
-				continue;
-
-			if (i == sockfd) {
-				descr_new();
-			} else if (descr_read(d) < 0)
-				descr_close(d);
+			}
 		}
 	}
 	return 0;
