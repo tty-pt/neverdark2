@@ -244,12 +244,10 @@ main(int argc, char **argv)
 
 	warn("listening\n");
 	while (shutdown_flag == 0) {
-		/* const buf[BUFSIZ]; */
 		memset(&cliaddr, 0, sizeof(cliaddr));
 
 		unsigned len = sizeof(cliaddr);
 
-		/* if (recvfrom(sockfd, buf, sizeof(buf), 0, */
 		if (recvfrom(sockfd, &pkg, sizeof(pkg), 0,
 			 (struct sockaddr *) &cliaddr, (socklen_t *) &len) >= 0)
 		{
@@ -268,8 +266,9 @@ main(int argc, char **argv)
 			warn("Received package type %u\n", pkg.type);
 			switch (pkg.type) {
 			case PT_TEXT: {
-				command_t cmd = command_new(&d, pkg.sp.text, strlen(pkg.sp.text));
 				warn("TEXT: %s\n", pkg.sp.text);
+
+				command_t cmd = command_new(&d, pkg.sp.text, strlen(pkg.sp.text));
 
 				if (!cmd.argc)
 					return 0;
