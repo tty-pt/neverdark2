@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <unistd.h>
 #include "shared.h"
 
@@ -22,8 +23,8 @@ struct sockaddr_in servaddr;
 int sockfd;
 int w = 640, h = 480;
 int lx = -1, ly = -1;
-int ltick;
-int keymap[1 + (unsigned char) -1] = {
+long long unsigned ltick;
+long long unsigned keymap[1 + (unsigned char) -1] = {
 	[ 0 ... (unsigned char) -1] = 0,
 };
 int updated_cam = 1;
@@ -119,11 +120,11 @@ resize(int w, int h)
 }
 
 int
-key_ldt(float *ldt, char key, int tick, float dt)
+key_ldt(double *ldt, char key, long long unsigned tick, double dt)
 {
 	if (keymap[(unsigned char) key]) {
 		*ldt = (keymap[(unsigned char) key] > ltick)
-			? (float) (tick - keymap[(unsigned char) key]) / 1000.0f
+			? (tick - keymap[(unsigned char) key]) * 0.001
 			: dt;
 
 		return 1;
@@ -150,48 +151,59 @@ cam_translate(float dx, float dy, float dz)
 	updated_cam = 1;
 }
 
+long long unsigned tick_get() {
+	struct timeval tv;
+	gettimeofday(&tv, NULL);
+	return
+		(unsigned long long)(tv.tv_sec) * 1000 +
+		(unsigned long long)(tv.tv_usec) / 1000;
+}
+
+float cam_speed = 6.0;
+float cam_aspeed = 0.8;
+
 void
 update() {
-	int tick = glutGet(GLUT_ELAPSED_TIME);
-	float dt = (float) (tick - ltick) / 1000.0f, ldt;
+	long long unsigned tick = tick_get();
+	double dt = (tick - ltick) * 0.001, ldt;
 
 	/* warn("dt %d - %d = %f\n", tick, ltick, dt); */
 
 	if (key_ldt(&ldt, 'd', tick, dt))
-		cam_translate(10.0f * ldt, 0, 0);
+		cam_translate(cam_speed * ldt, 0, 0);
 
 	if (key_ldt(&ldt, 'D', tick, dt))
-		cam_rotate(-1.6 * ldt, 0.0f, 1.0f, 0.0f);
+		cam_rotate(-cam_aspeed * ldt, 0.0f, 1.0f, 0.0f);
 
 	if (key_ldt(&ldt, 'a', tick, dt))
-		cam_translate(-10.0f * ldt, 0, 0);
+		cam_translate(-cam_speed * ldt, 0, 0);
 
 	if (key_ldt(&ldt, 'A', tick, dt))
-		cam_rotate(1.6 * ldt, 0.0f, 1.0f, 0.0f);
+		cam_rotate(cam_aspeed * ldt, 0.0f, 1.0f, 0.0f);
 
 	if (key_ldt(&ldt, 'w', tick, dt))
-		cam_translate(0, 0, -10.0f * ldt);
+		cam_translate(0, 0, -cam_speed * ldt);
 
 	if (key_ldt(&ldt, 'W', tick, dt))
-		cam_rotate(1.6 * ldt, 1.0f, 0.0f, 0.0f);
+		cam_rotate(cam_aspeed * ldt, 1.0f, 0.0f, 0.0f);
 
 	if (key_ldt(&ldt, 's', tick, dt))
-		cam_translate(0, 0, 10.0f * ldt);
+		cam_translate(0, 0, cam_speed * ldt);
 
 	if (key_ldt(&ldt, 'S', tick, dt))
-		cam_rotate(-1.6 * ldt, 1.0f, 0.0f, 0.0f);
+		cam_rotate(-cam_aspeed * ldt, 1.0f, 0.0f, 0.0f);
 
 	if (key_ldt(&ldt, 'q', tick, dt))
-		cam_translate(0, 10.0f * ldt, 0);
+		cam_translate(0, cam_speed * ldt, 0);
 
 	if (key_ldt(&ldt, 'Q', tick, dt))
-		cam_rotate(1.6 * ldt, 0.0f, 0.0f, 1.0f);
+		cam_rotate(cam_aspeed * ldt, 0.0f, 0.0f, 1.0f);
 
 	if (key_ldt(&ldt, 'e', tick, dt))
-		cam_translate(0, -10.0f * ldt, 0);
+		cam_translate(0, -cam_speed * ldt, 0);
 
 	if (key_ldt(&ldt, 'E', tick, dt))
-		cam_rotate(-1.6 * ldt, 0.0f, 0.0f, 1.0f);
+		cam_rotate(-cam_aspeed * ldt, 0.0f, 0.0f, 1.0f);
 
 	if (updated_cam) {
 		viewport_init(w, h);
@@ -233,9 +245,7 @@ key_up(unsigned char key, int x, int y)
 void
 key_down(unsigned char key, int x, int y)
 {
-	keymap[key] = glutGet(GLUT_ELAPSED_TIME);
-	if (!keymap[key])
-		keymap[key] = 1;
+	keymap[key] = tick_get();
 }
 
 int
@@ -246,7 +256,7 @@ main(int argc, char *argv[])
 	gl_init(argc, argv);
 	cam_init();
 	text_send("auth One=qovmjbl");
-	ltick = glutGet(GLUT_ELAPSED_TIME);
+	ltick = tick_get();
 
 	/* warn("sizeof(dReal) = %lu\n", sizeof(dReal)); */
 	glutDisplayFunc(display);
