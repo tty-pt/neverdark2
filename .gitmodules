@@ -1,3 +1,9 @@
 [submodule "Nuklear"]
 	path = Nuklear
 	url = git@github.com:tty-pt/Nuklear.git
+[submodule "cgltf"]
+	path = cgltf
+	url = https://github.com/jkuhlmann/cgltf
+[submodule "stb"]
+	path = stb
+	url = git@github.com:tty-pt/stb.git

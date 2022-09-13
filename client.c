@@ -1,9 +1,11 @@
 #include <arpa/inet.h>
 #include <cglm/cglm.h>
+#include <ctype.h>
 #include <fcntl.h>
 /* #include <GL/gl.h> */
 /* #include <GL/glx.h> */
 /* #include <GL/glu.h> */
+/* #include <GLFW/glfw3.h> */
 #include <GL/freeglut.h>
 #include <netdb.h>
 /* #include <ode/ode.h> */
@@ -12,7 +14,9 @@
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <unistd.h>
+#include "model.h"
 #include "shared.h"
+#include "debug.h"
 
 struct {
 	vec3 position;
@@ -31,6 +35,7 @@ int updated_cam = 1;
 
 vec3 frontv = { 0, 0, -1.0f };
 vec3 upv = { 0, 1.0f, 0 };
+struct model fox;
 
 static inline void
 sock_init() {
@@ -84,7 +89,7 @@ viewport_init(int nw, int nh)
 	h = nh;
 	glMatrixMode(GL_PROJECTION);
 	glLoadIdentity();
-	gluPerspective(45.0f, (float) w / (float) h, 0.1f, 100.0f);
+	gluPerspective(45.0f, (float) w / (float) h, 0.1f, 1000.0f);
 	glm_quat_rotatev(cam.rotation, frontv, lookat);
 	glm_quat_rotatev(cam.rotation, upv, up);
 	glm_vec3_add(cam.position, lookat, lookat);
@@ -105,7 +110,8 @@ display() {
 	glClear(GL_COLOR_BUFFER_BIT);
 	glMatrixMode(GL_MODELVIEW);
 
-	glutSolidTeapot(.5);
+	/* glutSolidTeapot(.5); */
+	glCallList(fox.dl);
 
 	glFlush();
 }
@@ -229,8 +235,8 @@ mouse_pmove(int x, int y)
 	if (lx != -1) {
 		float dx = (float) x - lx;
 		float dy = (float) y - ly;
-		cam_rotate(glm_deg(-0.0005f * dx * 180.0f / (float) w), 0.0f, 1.0f, 0.0f);
-		cam_rotate(glm_deg(-0.0005f * dy * 180.0f / (float) h), 1.0f, 0.0f, 0.0f);
+		cam_rotate(-2.0f * dx / (float) w, 0.0f, 1.0f, 0.0f);
+		cam_rotate(-2.0f * dy / (float) h, 1.0f, 0.0f, 0.0f);
 	}
 	lx = x;
 	ly = y;
@@ -246,6 +252,10 @@ void
 key_down(unsigned char key, int x, int y)
 {
 	keymap[key] = tick_get();
+	if (isupper(key))
+		keymap[tolower(key)] = 0;
+	else if (islower(key))
+		keymap[toupper(key)] = 0;
 }
 
 int
@@ -255,6 +265,8 @@ main(int argc, char *argv[])
 	sock_init();
 	gl_init(argc, argv);
 	cam_init();
+	CBUG(model_load(&fox, "fox.glb"));
+
 	text_send("auth One=qovmjbl");
 	ltick = tick_get();
 

@@ -10,6 +10,7 @@ all: server client
 
 server.o: server.c
 client.o: client.c
+model.o: model.c
 
 .c.o:
 	${COMPILE.c} -o $@ $<
@@ -17,8 +18,8 @@ client.o: client.c
 server: server.o
 	${LINK.c} ${SERVER_LDFLAGS} -o $@ server.o
 
-client: client.o
-	${LINK.c} ${CLIENT_LDFLAGS} -o $@ client.o
+client: model.o client.o
+	${LINK.c} ${CLIENT_LDFLAGS} -o $@ model.o client.o
 
 clean:
 	rm server.o server
