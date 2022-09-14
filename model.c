@@ -4,7 +4,18 @@
 #define CGLTF_IMPLEMENTATION
 #include "cgltf/cgltf.h"
 #include "cglm/cglm.h"
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb/stb_image.h"
 #include "debug.h"
+
+static inline size_t
+model_unpackf(cgltf_float **floats_r, cgltf_attribute *attr, int components) {
+	cgltf_float *floats = calloc(1, attr->data->count * components * sizeof(float));
+	size_t count = cgltf_accessor_unpack_floats(attr->data, NULL, 0);
+	cgltf_accessor_unpack_floats(attr->data, (cgltf_float *) floats, count);
+	*floats_r = floats;
+	return count / components;
+}
 
 int
 model_load(struct model *m, char *fname) {
@@ -33,33 +44,69 @@ model_load(struct model *m, char *fname) {
 	/* cgltf_accessor *indices = prim->indices; */
 	warn("primitive type %u\n", prim->type);
 	vec3 *position = NULL, *p;
-	int vertexCount;
+	vec2 *texcoord = NULL, *tc;
+	int vertexCount, texcoordCount;
 	/* CBUG(if (position_accessor->component_type == cgltf_component_type_r_16u)); */
 	for (int i = 0; i < prim->attributes_count; i++) {
 		cgltf_attribute *attr = &prim->attributes[i];
 		warn("attribute type %u\n", attr->type);
-		if (attr->type == cgltf_attribute_type_position) {
-			position = calloc(1, attr->data->count * 3 * sizeof(float));
-			size_t floatsToUnpack = cgltf_accessor_unpack_floats(attr->data, NULL, 0);
-			cgltf_accessor_unpack_floats(attr->data, (cgltf_float*) position, floatsToUnpack);
-			vertexCount = floatsToUnpack / 3;
-
+		switch (attr->type) {
+		case cgltf_attribute_type_position:
+			vertexCount = model_unpackf((cgltf_float **) &position, attr, 3);
+			break;
+		case cgltf_attribute_type_texcoord:
+			texcoordCount = model_unpackf((cgltf_float **) &texcoord, attr, 2);
+			break;
+		default:
+			break;
 		}
 	}
+
+	warn("vertices: %d, texcoords: %d\n", vertexCount, texcoordCount);
+
+	cgltf_material * mat = prim->material;
+	warn("material %p\n", prim->material);
+	/* warn("normal_texture %p\n", prim->material->normal_texture); */
+	warn("texture %p\n", prim->material->normal_texture.texture);
+	/* warn("pbr_metallic_roughness.base_color_texture %p\n", mat->pbr_metallic_roughness.base_color_texture); */
+	cgltf_buffer_view *tview = mat->pbr_metallic_roughness.base_color_texture.texture->image->buffer_view;
+	/* warn("pbr_specular_glossiness.diffuse_texture %p\n", mat->pbr_specular_glossiness.diffuse_texture); */
+	/* warn("image %p\n", prim->material->normal_texture.texture->image); */
+	/* cgltf_buffer_view *tview = prim->material->normal_texture.texture->image->buffer_view; */
+	/* m->texture.data = (char *) malloc(tview->size); */
+	/* memcpy(m->texture.data, tview->buffer->data + tview->offset, tview->size); */
+	warn("tview %p\n", tview);
+	warn("tview size: %lu, offset: %lu\n", tview->size, tview->offset);
+
+	m->texture.data = stbi_load_from_memory(tview->buffer->data + tview->offset, tview->size, &m->texture.w, &m->texture.h, &m->texture.channels, 3);
+	glGenTextures(1, &m->texture.id);
+	/* glActiveTexture(GL_TEXTURE0); */
+	glBindTexture(GL_TEXTURE_2D, m->texture.id);
+	/* glTexParameterf */
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, m->texture.w, m->texture.h, 0, GL_RGB, GL_UNSIGNED_BYTE, m->texture.data);
+	/* glGenerateMipmap(GL_TEXTURE_2D); */
 
 	m->dl = glGenLists(1);
 	glNewList(m->dl, GL_COMPILE);
 	glBegin(GL_TRIANGLES);
+	glBindTexture(GL_TEXTURE_2D, m->texture.id);
 
-	for (p = position;
+	for (p = position, tc = texcoord;
 	     p < position + vertexCount;
-	     p ++)
+	     p ++, tc ++)
 	{
 		vec3 vertex;
+		vec2 tcc;
+
 		memcpy(&vertex, p, sizeof(vertex));
+		memcpy(&tcc, tc, sizeof(tcc));
+		glTexCoord2f(tcc[0], tcc[1]);
 		glVertex3f(vertex[0], vertex[1], vertex[2]);
 	}
 
+	/* glDisable(GL_TEXTURE_2D); */
 	glEnd();
 	glEndList();
 

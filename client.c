@@ -71,13 +71,9 @@ inline static void
 gl_init(int argc, char *argv[]) {
 	glutInit(&argc, argv);
 	/* glutInitDisplayMode(GLUT_DEPTH | GLUT_DOUBLE | GLUT_RGBA); */
-	glutInitDisplayMode(GLUT_RGB);
+	glutInitDisplayMode(GLUT_DEPTH | GLUT_RGBA);
 	glutInitWindowSize(w, h);
 	glutCreateWindow("Neverdark2 client");
-	/* glMatrixMode(GL_PROJECTION); */
-	/* glLoadIdentity(); */
-	/* glOrtho(0.0, 1.0, 0.0, 1.0, -1.0, 1.0); */
-	/* gluLookAt(0, 0, -9, 0, 0, 0, 0, 1, 0); */
 }
 
 void
@@ -106,8 +102,7 @@ viewport_init(int nw, int nh)
 
 void
 display() {
-	/* glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); */
-	glClear(GL_COLOR_BUFFER_BIT);
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	glMatrixMode(GL_MODELVIEW);
 
 	/* glutSolidTeapot(.5); */
@@ -265,7 +260,9 @@ main(int argc, char *argv[])
 	sock_init();
 	gl_init(argc, argv);
 	cam_init();
-	CBUG(model_load(&fox, "fox.glb"));
+	glEnable(GL_TEXTURE_2D);
+	glEnable(GL_DEPTH_TEST);
+	CBUG(model_load(&fox, "fox2.glb"));
 
 	text_send("auth One=qovmjbl");
 	ltick = tick_get();
@@ -277,7 +274,6 @@ main(int argc, char *argv[])
 	glutPassiveMotionFunc(mouse_pmove);
 	glutKeyboardUpFunc(key_up);
 	glutKeyboardFunc(key_down);
-	/* glEnable(GL_DEPTH_TEST); */
 	viewport_init(w, h);
 	/* glClearColor(0.0, 0.0, 0.0, 0.0); */
 	glutMainLoop();
