@@ -63,26 +63,15 @@ model_load(struct model *m, char *fname) {
 	}
 
 	warn("vertices: %d, texcoords: %d\n", vertexCount, texcoordCount);
-
 	cgltf_material * mat = prim->material;
-	warn("material %p\n", prim->material);
-	/* warn("normal_texture %p\n", prim->material->normal_texture); */
-	warn("texture %p\n", prim->material->normal_texture.texture);
-	/* warn("pbr_metallic_roughness.base_color_texture %p\n", mat->pbr_metallic_roughness.base_color_texture); */
+	warn("texture %p\n", mat->normal_texture.texture);
 	cgltf_buffer_view *tview = mat->pbr_metallic_roughness.base_color_texture.texture->image->buffer_view;
-	/* warn("pbr_specular_glossiness.diffuse_texture %p\n", mat->pbr_specular_glossiness.diffuse_texture); */
-	/* warn("image %p\n", prim->material->normal_texture.texture->image); */
-	/* cgltf_buffer_view *tview = prim->material->normal_texture.texture->image->buffer_view; */
-	/* m->texture.data = (char *) malloc(tview->size); */
-	/* memcpy(m->texture.data, tview->buffer->data + tview->offset, tview->size); */
 	warn("tview %p\n", tview);
 	warn("tview size: %lu, offset: %lu\n", tview->size, tview->offset);
 
 	m->texture.data = stbi_load_from_memory(tview->buffer->data + tview->offset, tview->size, &m->texture.w, &m->texture.h, &m->texture.channels, 3);
 	glGenTextures(1, &m->texture.id);
-	/* glActiveTexture(GL_TEXTURE0); */
 	glBindTexture(GL_TEXTURE_2D, m->texture.id);
-	/* glTexParameterf */
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, m->texture.w, m->texture.h, 0, GL_RGB, GL_UNSIGNED_BYTE, m->texture.data);
@@ -106,7 +95,6 @@ model_load(struct model *m, char *fname) {
 		glVertex3f(vertex[0], vertex[1], vertex[2]);
 	}
 
-	/* glDisable(GL_TEXTURE_2D); */
 	glEnd();
 	glEndList();
 
