@@ -64,23 +64,32 @@ model_load(struct model *m, char *fname) {
 
 	warn("vertices: %d, texcoords: %d\n", vertexCount, texcoordCount);
 	cgltf_material * mat = prim->material;
-	warn("texture %p\n", mat->normal_texture.texture);
-	cgltf_buffer_view *tview = mat->pbr_metallic_roughness.base_color_texture.texture->image->buffer_view;
-	warn("tview %p\n", tview);
-	warn("tview size: %lu, offset: %lu\n", tview->size, tview->offset);
+	cgltf_texture *tex_r = mat->pbr_metallic_roughness.base_color_texture.texture;
 
-	m->texture.data = stbi_load_from_memory(tview->buffer->data + tview->offset, tview->size, &m->texture.w, &m->texture.h, &m->texture.channels, 3);
-	glGenTextures(1, &m->texture.id);
-	glBindTexture(GL_TEXTURE_2D, m->texture.id);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, m->texture.w, m->texture.h, 0, GL_RGB, GL_UNSIGNED_BYTE, m->texture.data);
-	/* glGenerateMipmap(GL_TEXTURE_2D); */
+	if (tex_r) {
+		cgltf_buffer_view *tview = tex_r->image->buffer_view;
+		warn("tview %p\n", tview);
+		warn("tview size: %lu, offset: %lu\n", tview->size, tview->offset);
+
+		struct texture tex;
+
+		tex.data = stbi_load_from_memory(tview->buffer->data + tview->offset, tview->size, &tex.w, &tex.h, &tex.channels, 3);
+		glGenTextures(1, &m->texture_id);
+		glBindTexture(GL_TEXTURE_2D, m->texture_id);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, tex.w, tex.h, 0, GL_RGB, GL_UNSIGNED_BYTE, tex.data);
+		stbi_image_free(tex.data);
+		/* glGenerateMipmap(GL_TEXTURE_2D); */
+	} else {
+		m->texture_id = TEX_INVALID;
+	}
 
 	m->dl = glGenLists(1);
 	glNewList(m->dl, GL_COMPILE);
 	glBegin(GL_TRIANGLES);
-	glBindTexture(GL_TEXTURE_2D, m->texture.id);
+	if (tex_r)
+		glBindTexture(GL_TEXTURE_2D, m->texture_id);
 
 	for (p = position, tc = texcoord;
 	     p < position + vertexCount;

@@ -16,6 +16,7 @@
 #include <unistd.h>
 #include "model.h"
 #include "shared.h"
+#include "chunks.h"
 #include "debug.h"
 
 struct {
@@ -152,7 +153,9 @@ cam_translate(float dx, float dy, float dz)
 	updated_cam = 1;
 }
 
-long long unsigned tick_get() {
+long long unsigned
+tick_get()
+{
 	struct timeval tv;
 	gettimeofday(&tv, NULL);
 	return
@@ -263,7 +266,9 @@ main(int argc, char *argv[])
 	glEnable(GL_TEXTURE_2D);
 	glEnable(GL_DEPTH_TEST);
 	CBUG(model_load(&fox, "fox2.glb"));
+	chunk_load();
 
+	warn("OpenGL version: %s\n", glGetString(GL_VERSION));
 	text_send("auth One=qovmjbl");
 	ltick = tick_get();
 

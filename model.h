@@ -2,16 +2,17 @@
 #define MODEL_H
 #include "cgltf/cgltf.h"
 
+#define TEX_INVALID ((unsigned) -1)
+
 struct texture {
 	char *data;
 	int w, h, channels;
-	unsigned id;
 };
 
 struct model {
 	cgltf_data *gltf;
 	int dl;
-	struct texture texture;
+	unsigned texture_id;
 	/* vec3 position; */
 	/* versor rotation; */
 };
