@@ -61,12 +61,12 @@ typedef struct { unsigned x, w; } octave_t;
 		int16_t va[dim * (1 << dim)]; \
 		int i, j; \
 		\
-		for (i = 0; i < (1 << dim); i++) \
+		for (i = 0; i < (1 << dim); i++) { \
 			for (j = 0; j < dim; j++) \
 				va[i * dim + j] = s[j] + ((i & (1 << (dim - j - 1))) ? d : 0); \
-		\
-		for (i = 0; i < (1 << dim); i++) \
+			\
 			v[i] = noise_r ## dim (va + dim * i, seed, w); \
+		} \
 	}
 
 
