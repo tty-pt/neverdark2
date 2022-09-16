@@ -58,17 +58,15 @@ typedef struct { unsigned x, w; } octave_t;
 #define NOISE_GET_V(dim) static inline void \
 	noise_get_v ## dim (noise_t v[1 << dim], int16_t s[dim], uint16_t x, unsigned w, unsigned seed) { \
 		const int16_t d = 1 << x; \
-		/* TODO: make this dynamic to dim */ \
-		const int16_t va[][dim] = { \
-			{ s[0], s[1] }, \
-			{ s[0], s[1] + d }, \
-			{ s[0] + d, s[1] }, \
-			{ s[0] + d, s[1] + d } \
-		}; \
-		int i; \
+		int16_t va[dim * (1 << dim)]; \
+		int i, j; \
 		\
 		for (i = 0; i < (1 << dim); i++) \
-		v[i] = noise_r ## dim ((int16_t *) va[i], seed, w); \
+			for (j = 0; j < dim; j++) \
+				va[i * dim + j] = s[j] + ((i & (1 << (dim - j - 1))) ? d : 0); \
+		\
+		for (i = 0; i < (1 << dim); i++) \
+			v[i] = noise_r ## dim (va + dim * i, seed, w); \
 	}
 
 
@@ -240,7 +238,8 @@ __fix_v(noise_t *v, snoise_t *st, int16_t *ms, int16_t *qs, unsigned x, uint16_t
 
 #define NOISE_OCT(dim) void \
 	noise_oct ## dim (noise_t *m, int16_t s[dim], size_t oct_n, \
-			  octave_t *oct, unsigned seed, unsigned cm, unsigned cy) { \
+			  octave_t *oct, unsigned seed, unsigned cy) { \
+		unsigned cm = 1 << dim * cy; \
 		octave_t *oe; \
 		memset(m, 0, sizeof(noise_t) * cm); \
 		for (oe = oct + oct_n; oct < oe; oct++) \
