@@ -98,7 +98,7 @@ step(noise_t *v, snoise_t *st, uint16_t vl, uint16_t mul)
 	noise_quad ## dim (noise_t *c, noise_t *vc, unsigned z, unsigned w, unsigned cy) { \
 		uint16_t ndim = dim - 1; \
 		uint16_t tvl = 1 << ndim; /* length of input values */ \
-		snoise_t st[(tvl<<1) - 1], *stc = st; \
+		snoise_t st[(tvl << 1) - 1], *stc = st; \
 		noise_t *ce_p[dim], *vt; \
 		size_t cd = 1 << cy * ndim; /* (2^y)^ndim */ \
 		goto start; \
@@ -107,14 +107,14 @@ step(noise_t *v, snoise_t *st, uint16_t vl, uint16_t mul)
 				/* PUSH */ \
 				cd >>= cy; ndim--; vc = vt; stc += tvl; tvl >>= 1; \
 				\
-				start:			ce_p[ndim] = c + (cd<<z); \
+	start:			ce_p[ndim] = c + (cd << z); \
 				vt = vc + (tvl<<1); \
 				\
 				calc_steps(stc, vc, z, tvl, 0); \
 				memcpy(vt, vc, tvl * sizeof(noise_t)); \
 			} while (ndim); \
 			\
-			for (; c < ce_p[0]; c+=cd, vt[0]+=*stc) \
+			for (; c < ce_p[0]; c += cd, vt[0] += *stc) \
 			*c += vt[0]; \
 			\
 			do { \
@@ -143,23 +143,23 @@ step(noise_t *v, snoise_t *st, uint16_t vl, uint16_t mul)
 		do { \
 			do { /* PUSH */ \
 				qsc++; ndim--; \
-				start:			ce_p[ndim] = c + ced; \
+	start:			ce_p[ndim] = c + ced; \
 				ced >>= cy; \
 			} while (ndim); \
 			\
 			do { \
 				noise_get_v ## dim (v, qs, x, w, seed); \
 				noise_quad ## dim (c, v, x, w, cy); \
-				*qsc += 1<<x; \
-				c += ced<<x; \
+				*qsc += 1 << x; \
+				c += ced << x; \
 			} while (c < ce_p[ndim]); \
 			\
 			do { /* POP */ \
 				*qsc -= 1 << cy; \
 				ced <<= cy; \
-				c += (ced<<x) - ced; /* reset and inc */ \
+				c += (ced << x) - ced; /* reset and inc */ \
 				qsc--; ndim++; \
-				*qsc += 1<<x; \
+				*qsc += 1 << x; \
 			} while (c >= ce_p[ndim]); \
 		} while (ndim < dim); \
 	}
@@ -197,9 +197,9 @@ __fix_v(noise_t *v, snoise_t *st, int16_t *ms, int16_t *qs, unsigned x, uint16_t
 			__fix_v(v, stc, ms, qs, x, vl, cy); \
 			\
 			if (ndim) { \
-				ndim--; qs++; ms++; vl>>=1; stc+=vl; /* PUSH */ \
+				ndim--; qs++; ms++; vl >>= 1; stc += vl; /* PUSH */ \
 			} else if (first) { \
-				v += vl<<1; \
+				v += vl << 1; \
 				first = 0; \
 			} else break; \
 		} \

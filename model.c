@@ -95,13 +95,8 @@ model_load(struct model *m, char *fname) {
 	     p < position + vertexCount;
 	     p ++, tc ++)
 	{
-		vec3 vertex;
-		vec2 tcc;
-
-		memcpy(&vertex, p, sizeof(vertex));
-		memcpy(&tcc, tc, sizeof(tcc));
-		glTexCoord2f(tcc[0], tcc[1]);
-		glVertex3f(vertex[0], vertex[1], vertex[2]);
+		glTexCoord2fv(*tc);
+		glVertex3fv(*p);
 	}
 
 	glEnd();
