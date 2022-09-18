@@ -45,32 +45,31 @@ model_load(struct model *m, char *fname) {
 	warn("primitive type %u\n", prim->type);
 	vec3 *position = NULL, *p;
 	vec2 *texcoord = NULL, *tc;
-	int vertexCount, texcoordCount;
+	vec3 *normal = NULL, *n;
+	int vertexCount;
 	/* CBUG(if (position_accessor->component_type == cgltf_component_type_r_16u)); */
 	for (int i = 0; i < prim->attributes_count; i++) {
 		cgltf_attribute *attr = &prim->attributes[i];
-		warn("attribute type %u\n", attr->type);
 		switch (attr->type) {
 		case cgltf_attribute_type_position:
 			vertexCount = model_unpackf((cgltf_float **) &position, attr, 3);
 			break;
 		case cgltf_attribute_type_texcoord:
-			texcoordCount = model_unpackf((cgltf_float **) &texcoord, attr, 2);
+			model_unpackf((cgltf_float **) &texcoord, attr, 2);
+			break;
+		case cgltf_attribute_type_normal:
+			model_unpackf((cgltf_float **) &normal, attr, 3);
 			break;
 		default:
 			break;
 		}
 	}
 
-	warn("vertices: %d, texcoords: %d\n", vertexCount, texcoordCount);
 	cgltf_material * mat = prim->material;
 	cgltf_texture *tex_r = mat->pbr_metallic_roughness.base_color_texture.texture;
 
 	if (tex_r) {
 		cgltf_buffer_view *tview = tex_r->image->buffer_view;
-		warn("tview %p\n", tview);
-		warn("tview size: %lu, offset: %lu\n", tview->size, tview->offset);
-
 		struct texture tex;
 
 		tex.data = stbi_load_from_memory(tview->buffer->data + tview->offset, tview->size, &tex.w, &tex.h, &tex.channels, 3);
@@ -87,15 +86,17 @@ model_load(struct model *m, char *fname) {
 
 	m->dl = glGenLists(1);
 	glNewList(m->dl, GL_COMPILE);
+	glShadeModel(GL_SMOOTH);
 	glBegin(GL_TRIANGLES);
 	if (tex_r)
 		glBindTexture(GL_TEXTURE_2D, m->texture_id);
 
-	for (p = position, tc = texcoord;
+	for (p = position, tc = texcoord, n = normal;
 	     p < position + vertexCount;
-	     p ++, tc ++)
+	     p ++, tc ++, n++)
 	{
 		glTexCoord2fv(*tc);
+		glNormal3fv(*n);
 		glVertex3fv(*p);
 	}
 

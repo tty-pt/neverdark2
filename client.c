@@ -11,7 +11,9 @@
 /* #include <ode/ode.h> */
 #include <stdlib.h>
 #include <string.h>
+/* #include <sys/mman.h> */
 #include <sys/socket.h>
+/* #include <sys/stat.h> */
 #include <sys/time.h>
 #include <unistd.h>
 #include "model.h"
@@ -37,7 +39,7 @@ int updated_cam = 1;
 vec3 frontv = { 0, 0, -1.0f };
 vec3 upv = { 0, 1.0f, 0 };
 struct model fox;
-int chunk_dl;
+struct chunk chunk;
 
 static inline void
 sock_init() {
@@ -109,7 +111,7 @@ display() {
 
 	/* glutSolidTeapot(.5); */
 	glCallList(fox.dl);
-	glCallList(chunk_dl);
+	glCallList(chunk.dl);
 
 	glFlush();
 }
@@ -258,22 +260,40 @@ key_down(unsigned char key, int x, int y)
 		keymap[toupper(key)] = 0;
 }
 
+/* void */
+/* shader_load(char *name) { */
+
+/* 	struct stat s; */
+/* 	int fd = open(name, O_RDONLY); */
+/* 	CBUG(fd < 0); */
+/* 	int status = fstat(fd, &s); */
+/* 	char *str = mmap(NULL, s.st_size, PROT_READ, MAP_PRIVATE, fd, 0); */
+/* 	int vs = glCreateShader(GL_VERTEX_SHADER); */
+/* 	int success; */
+/* 	glShaderSource(vs, 1, str, NULL); */
+/* 	glCompileShader(vs); */
+/* 	glGetShaderiv(vs, GL_COMPILE_STATUS, &success); */
+/* 	CBUG(!success); */
+/* 	munmap(str); */
+/* 	close(fd); */
+/* } */
+
 int
 main(int argc, char *argv[])
 {
-	/* vec3 light_pos = { 0.0, 0.0, 0.0 }; */
-	sleep(1);
+	vec4 light_pos = { 0.0, 10.0, 0.0, 0.0 };
+	/* sleep(1); */
 	sock_init();
 	gl_init(argc, argv);
 	cam_init();
-	glShadeModel(GL_SMOOTH);
 	glEnable(GL_TEXTURE_2D);
 	glEnable(GL_DEPTH_TEST);
-	/* glEnable(GL_LIGHTING); */
-	/* glEnable(GL_LIGHT0); */
+	glEnable(GL_LIGHTING);
+	glEnable(GL_LIGHT0);
 	CBUG(model_load(&fox, "fox2.glb"));
-	chunk_dl = chunk_load();
-	/* glLightfv(GL_LIGHT0, GL_POSITION, light_pos); */
+	chunks_init();
+	chunk_load(&chunk);
+	glLightfv(GL_LIGHT0, GL_POSITION, light_pos);
 
 	warn("OpenGL version: %s\n", glGetString(GL_VERSION));
 	text_send("auth One=qovmjbl");

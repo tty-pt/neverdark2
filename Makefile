@@ -1,10 +1,10 @@
 .SUFFIXES: .o .c
 
-CFLAGS += -Wall -I/usr/local/include -I/usr/X11R6/include
+CFLAGS += -g -Wall -I/usr/local/include -I/usr/X11R6/include
 LDFLAGS += -L/usr/local/lib 
 
 SERVER_LDFLAGS := -ldb
-CLIENT_LDFLAGS := -L/usr/X11R6/lib -lX11 -lGL -lGLU -lglut -lm -lode -lcglm -lxxhash
+CLIENT_LDFLAGS := -L/usr/X11R6/lib -lX11 -lGL -lGLU -lglut -lm -lode -lcglm -lxxhash -ldb
 
 all: server client
 
