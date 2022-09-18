@@ -1,9 +1,9 @@
+#define NOISE_IMPLEMENTATION
+#include "noise.h"
 #include "chunks.h"
 #include <GL/freeglut.h>
 #define SDB_IMPLEMENTATION
 #include "sdb.h"
-
-NOISE(2);
 
 #define M2F(mi) (300.0 * (double) mi / (double) NOISE_MAX)
 
@@ -43,8 +43,7 @@ chunk_load(struct chunk *chunk) {
 	int16_t s[2] = { 0, 0 };
 	noise_t m[CHUNK_M];
 
-	warn("chunks %p\n", chunk->m);
-	noise_oct2(m, s, sizeof(oct) / sizeof(octave_t), oct, 0, CHUNK_Y);
+	noise_oct(m, s, sizeof(oct) / sizeof(octave_t), oct, 0, CHUNK_Y, 2);
 	memcpy(chunk->m, m, CHUNK_M * sizeof(noise_t));
 
 	for (int i = 0; i < 1 << CHUNK_Y; i++)
