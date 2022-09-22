@@ -112,6 +112,7 @@ display() {
 	/* glutSolidTeapot(.5); */
 	glCallList(fox.dl);
 	glCallList(chunk.dl);
+	chunks_render();
 
 	glFlush();
 }
@@ -292,7 +293,8 @@ main(int argc, char *argv[])
 	glEnable(GL_LIGHT0);
 	CBUG(model_load(&fox, "fox2.glb"));
 	chunks_init();
-	chunk_load(&chunk);
+	/* int16_t chunk_pos[] = { 0, 0 }; */
+	/* chunk_load(&chunk, chunk_pos); */
 	glLightfv(GL_LIGHT0, GL_POSITION, light_pos);
 
 	warn("OpenGL version: %s\n", glGetString(GL_VERSION));

@@ -7,15 +7,18 @@
 /* value returned when no position is found */
 #define SDB_INVALID 130056652770671ULL
 
+typedef void (*sdb_callback_t)(int16_t *pv, void *ptr);
+
 typedef struct {
 	DB *point2ptr;
 	DB *ptr2point;
 	unsigned char dim;
 	size_t el_len;
+	sdb_callback_t callback;
 } sdb_t;
 
 int sdb_init(sdb_t *, unsigned char dim, size_t el_len, DB_ENV *dbe, char *fname);
-void sdb_search(void **mat, sdb_t *, int16_t *min, int16_t *max);
+void sdb_search(sdb_t *, int16_t *min, int16_t *max);
 int sdb_close(sdb_t *);
 void sdb_where(int16_t *p, sdb_t *, void *thing);
 int sdb_delete(sdb_t *, void *what);
@@ -28,64 +31,93 @@ void sdb_put(sdb_t *, int16_t *p, void *thing, int flags);
 typedef uint64_t morton_t; // up to 4d morton
 typedef int64_t smorton_t;
 
-typedef struct {
-	void *what;
-	morton_t where;
-} map_range_t;
-
 static const morton_t m1 = 0x111111111111ULL;
 static const morton_t m0 = 0x800000000000ULL;
-
-static inline uint16_t
-morton_unsign(int16_t n)
-{
-	uint16_t r = ((smorton_t) n + SHRT_MAX);
-
-	if (r == USHRT_MAX)
-		return 1;
-
-	return r;
-}
 
 morton_t
 pos_morton(int16_t *p, uint8_t dim)
 {
-	uint16_t up[dim];
 	morton_t res = 0;
 	int i, j;
 
 	for (i = 0; i < dim; i++)
-		up[i] = morton_unsign(p[i]);
+		for (j = 0; j < 16; j++) {
+			register uint16_t v = (smorton_t) p[i] + SHRT_MAX;
+			if (v == USHRT_MAX)
+				v = 1;
+			res |= ((morton_t) (v >> j) & 1) << (j * dim + i);
+		}
 
-	for (i = 0; i < 16; i ++) {
-		for (j = 0; j < dim; j++)
-			res |= ((morton_t) ((up[j] >> i) & 1)) << (j + (dim * i));
-	}
+	/* res <<= (4 - dim) * 16; */
 
 	return res;
 }
 
-static inline int16_t
-morton_sign(uint16_t n)
-{
-	return (smorton_t) n - SHRT_MAX;
-}
-
+/* leave me alone */
 void
 morton_pos(int16_t *p, morton_t code, uint8_t dim)
 {
-	morton_t up[dim];
+	uint16_t up[dim];
 	int i, j;
 
-	memset(up, 0, sizeof(up));
-
-	for (i = 0; i < 16; i ++) {
-		for (j = 0; j < dim; j++)
-			up[j] |= ((code >> (j + dim * i)) & 1) << i;
+	for (i = 0; i < dim; i++) {
+		up[i] = 0;
+		for (j = 0; j < 16; j++) {
+			int16_t v = (code >> (j * dim + i)) & 1;
+			/* int16_t v = (code >> (j * dim + i + (4 - dim) * 16)) & 1; */
+			up[i] |= v << j;
+		}
 	}
 
-	for (j = 0; j < dim; j++)
-		p[j] = morton_sign(up[j]);
+	for (i = 0; i < dim; i++) {
+		p[i] = (smorton_t) up[i] - SHRT_MAX;
+	}
+}
+
+static inline void
+point_debug(int16_t *p, char *label, int8_t dim)
+{
+	warn("point %s", label);
+	for (int i = 0; i < dim; i++)
+		warn(" %d", p[i]);
+	warn("\n");
+}
+
+static inline void
+morton_debug(morton_t x, uint8_t dim)
+{
+	int16_t p[dim];
+	morton_pos(p, x, dim);
+	warn("%llx ", x);
+	point_debug(p, "morton_debug", dim);
+}
+
+static inline int
+morton_cmp(morton_t a, morton_t b, uint8_t dim, uint8_t cdim) {
+	/* unsigned offset = (4 - dim) * 16; */
+	/* int j; */
+
+	/* for (j = 0; j < 16; j++) { */
+	/* 	unsigned idx = 1 << (4 * 16 - offset - (j + dim * cdim)); */
+	/* 	if (b & idx) { */
+	/* 		if (a & idx) */
+	/* 			continue; */
+	/* 		else */
+	/* 			return 1; */
+	/* 	} else if (a & idx) */
+	/* 		return -1; */
+	/* } */
+
+	/* return 0; */
+	int16_t av[dim], bv[dim];
+	morton_pos(av, a, dim);
+	morton_pos(bv, b, dim);
+	if (av[cdim] > bv[cdim])
+		return -1;
+	else if (av[cdim] < bv[cdim])
+		return 1;
+	else
+		return 0;
 }
 
 static inline morton_t
@@ -101,16 +133,28 @@ sdb_qload_1(morton_t c, morton_t lm0, morton_t lm1) // LOAD(1000...
 }
 
 static inline int
-sdb_inrange(morton_t dr, int16_t *min, int16_t *max, unsigned char dim)
+sdb_inrange(morton_t dr, morton_t min, morton_t max, uint8_t dim)
 {
-	int16_t drp[dim];
+	int16_t drv[dim], minv[dim], maxv[dim];
 
-	// TODO use ffs
-	morton_pos(drp, dr, dim);
+	morton_pos(drv, dr, dim);
+	morton_pos(minv, min, dim);
+	morton_pos(maxv, max, dim);
 
-	for (int i = 0; i < dim; i++)
-		if (drp[i] < min[i] || drp[i] >= max[i])
+	/* warn("sdb_inrange %llx %llx %llx\n", min, dr, max); */
+	/* morton_debug(min, dim); */
+	/* morton_debug(dr, dim); */
+	/* morton_debug(max, dim); */
+
+	for (int i = 0; i < dim; i++) {
+		if (drv[i] < minv[i] || drv[i] > maxv[i])
 			return 0;
+	}
+
+	/* for (int i = 0; i < dim; i++) */
+	/* 	if (morton_cmp(min, dr, dim, i) < 0 */
+	/* 	    || morton_cmp(dr, max, dim, i) >= 0) */
+	/* 	    return 0; */
 
 	return 1;
 }
@@ -151,20 +195,21 @@ sdb_compute_bmlm(morton_t *bm, morton_t *lm,
 }
 
 static inline int
-sdb_range_unsafe(map_range_t *res, sdb_t *sdb, size_t n, int16_t *min, int16_t *max)
+sdb_range_unsafe(sdb_t *sdb, morton_t min, morton_t max)
 {
-	morton_t rmin = pos_morton(min, sdb->dim),
-		 rmax = pos_morton(max, sdb->dim),
-		 lm = 0,
-		 code;
-
-	map_range_t *r = res;
+	morton_t lm = 0, code;
 	DBC *cur;
 	DBT key, pkey, data;
-	size_t nn = n;
-	int ret = 0;
+	int ret = 0, res = 0;
 	int dbflags;
+	int16_t minv[sdb->dim], maxv[sdb->dim];
+	morton_pos(minv, min, sdb->dim);
+	morton_pos(maxv, max, sdb->dim);
 
+	warn("sdb_range_unsafe min %llx max %llx\n", min, max);
+	morton_debug(min, sdb->dim);
+	morton_debug(max, sdb->dim);
+	/* CBUG((smorton_t) min > (smorton_t) max); */
 	if (sdb->point2ptr->cursor(sdb->point2ptr, NULL, &cur, 0))
 		return -1;
 
@@ -173,8 +218,8 @@ sdb_range_unsafe(map_range_t *res, sdb_t *sdb, size_t n, int16_t *min, int16_t *
 
 	dbflags = DB_SET_RANGE;
 	memset(&key, 0, sizeof(DBT));
-	key.data = &rmin;
-	key.size = sizeof(rmin);
+	key.data = &min;
+	key.size = sizeof(min);
 
 next:	ret = cur->c_pget(cur, &key, &pkey, &data, dbflags);
 	dbflags = DB_NEXT;
@@ -191,25 +236,42 @@ next:	ret = cur->c_pget(cur, &key, &pkey, &data, dbflags);
 
 	code = *(morton_t*) key.data;
 
-	if (code > rmax)
+	if ((smorton_t) code > (smorton_t) max)
 		goto out;
 
+	/* warn("found chunk at %llx\n", code); */
 	if (sdb_inrange(code, min, max, sdb->dim)) {
-		r->what = pkey.data;
-		r->where = code;
-		r++;
-		nn--;
-		if (nn == 0)
-			goto out;
+		warn("%llx in range!\n", code);
+		int16_t pv[sdb->dim];
+		morton_pos(pv, code, sdb->dim);
+		sdb->callback(pv, pkey.data);
+		res++;
 	} else
-		sdb_compute_bmlm(&rmin, &lm, code, rmin, rmax);
+		sdb_compute_bmlm(&min, &lm, code, min, max);
 
 	goto next;
 
 out:	if (cur->close(cur) || ret)
 		return -1;
 
-	return r - res;
+	return res;
+}
+
+static inline int16_t
+morton_get(morton_t x, uint8_t i, uint8_t dim)
+{
+	int16_t p[dim];
+	morton_pos(p, x, dim);
+	return p[i];
+}
+
+static inline morton_t
+morton_set(morton_t x, uint8_t i, int16_t value, uint8_t dim)
+{
+	int16_t p[dim];
+	morton_pos(p, x, dim);
+	p[i] = value;
+	return pos_morton(p, dim);
 }
 
 /* this version accounts for type limits,
@@ -218,97 +280,65 @@ out:	if (cur->close(cur) || ret)
  */
 
 static int
-sdb_range_safe(map_range_t *res, sdb_t *sdb, size_t n, int16_t *min, int16_t *max, int dim)
+sdb_range_safe(sdb_t *sdb, morton_t min, morton_t max, int dim)
 {
-	map_range_t *re = res;
-	int i, aux;
-	size_t nn = n;
-	int16_t lmin[dim], lmax[dim];
-	memcpy(lmin, min, sizeof(int16_t) * dim);
-	memcpy(lmax, max, sizeof(int16_t) * dim);
+	int i, ret, aux;
+	morton_t lmin = min,
+		 lmax = max;
+
+	/* warn("sdb_range_safe %d %llx %llx\n", dim, min, max); */
+	/* morton_debug(min, sdb->dim); */
+	/* morton_debug(max, sdb->dim); */
 
 	for (i = dim; i < sdb->dim; i++) {
 		// FIXME account for world limits (might be different from data type limits)
 
-		if (min[i] <= max[i])
+		int16_t lmaxi = morton_get(lmax, i, sdb->dim);
+		int16_t lmini = morton_get(lmin, i, sdb->dim);
+
+		if (lmaxi >= lmini) // didn't cross data type limit
 			continue;
 
-		lmin[i] = max[i];
-		lmax[i] = SHRT_MAX;
-		aux = sdb_range_safe(re, sdb, nn, min, lmax, i + 1);
+		// lmin is correct
+		lmax = morton_set(lmax, i, SHRT_MAX, sdb->dim);
+		aux = sdb_range_safe(sdb, lmin, lmax, i + 1);
 
 		if (aux < 0)
-			return -1;
+			return aux;
 
-		nn -= aux;
-		re += aux;
+		lmin = morton_set(lmin, i, SHRT_MIN, sdb->dim);
+		lmax = morton_set(lmax, i, lmaxi - 1, sdb->dim);
+		ret = sdb_range_safe(sdb, lmin, lmax, i + 1);
 
-		lmax[i] = min[i];
-		lmin[i] = SHRT_MIN;
-		aux = sdb_range_safe(re, sdb, nn, lmin, lmax, i + 1); 
+		if (ret < 0)
+			return ret;
 
-		if (aux < 0)
-			return -1;
-
-		nn -= aux;
-
-		return n - nn;
+		return aux + ret;
 	}
 
-	return sdb_range_unsafe(re, sdb, nn, min, max);
+	return sdb_range_unsafe(sdb, lmin, lmax);
 }
 
-static inline size_t m_compute(unsigned char dim, int16_t *min, int16_t *max) {
-	register size_t m = 1;
-
-	for (int i = 0; i < dim; i++)
-		m *= max[i] < min[i]
-			? (max[i] - SHRT_MIN) + (SHRT_MAX - min[i])
-			: max[i] - min[i];
-
-	return m;
-}
-
-morton_t
-point_rel_idx(int16_t *p, int16_t *min, int16_t *max, uint8_t dim)
+static inline morton_t
+morton_unscramble(morton_t code, uint8_t dim)
 {
-	morton_t res = 0;
-	int i, j;
-
-	for (i = 0; i < dim; i++) {
-		morton_t lres = p[i] < min[i]
-			? (p[i] - SHRT_MIN) + (SHRT_MAX - min[i])
-			: (p[i] - min[i]);
-
-		for (j = 0; j < i; j++)
-			lres *= max[j] < min[j]
-				? (max[j] - SHRT_MIN) + (SHRT_MAX - min[j])
-				: (max[j] - min[j]);
-
-		res += lres;
-	}
-
-	return res;
+	morton_t result;
+	morton_pos((int16_t *) &result, code, dim);
+	return result;
 }
 
+// FIXME there is a memory leak in which sdb gets overwritten
 void
-sdb_search(void **mat, sdb_t *sdb, int16_t *min, int16_t *max)
+sdb_search(sdb_t *sdb, int16_t *min, int16_t *max)
 {
-	unsigned m = m_compute(sdb->dim, min, max);
-	map_range_t buf[m];
-	size_t n;
-	int i;
+	morton_t morton_min = pos_morton(min, sdb->dim),
+		 morton_max = pos_morton(max, sdb->dim);
+	int ret;
 
-	n = sdb_range_safe(buf, sdb, m, min, max, 0);
+	warn("sdb_search %llx %llx\n", morton_min, morton_max);
 
-	for (i = 0; i < m; i++)
-		mat[i] = NULL;
-
-	for (i = 0; i < n; i++) {
-		int16_t p[sdb->dim];
-		morton_pos(p, buf[i].where, sdb->dim);
-		mat[point_rel_idx(p, min, max, sdb->dim)] = buf[i].what;
-	}
+	ret = sdb_range_safe(sdb, morton_min, morton_max, 0);
+	warn("sdb_search result %d\n", ret);
 }
 
 static int
@@ -353,7 +383,7 @@ sdb_init(sdb_t *sdb, unsigned char dim, size_t el_len, DB_ENV *dbe, char *fname)
 }
 
 int
-map_close(sdb_t *sdb)
+sdb_close(sdb_t *sdb)
 {
 	return sdb->point2ptr->close(sdb->point2ptr, 0)
 		|| sdb->ptr2point->close(sdb->ptr2point, 0);
@@ -375,14 +405,16 @@ _sdb_put(sdb_t *sdb, morton_t code, void *thing, int flags)
 	data.size = sizeof(code);
 
 	ret = sdb->ptr2point->put(sdb->ptr2point, NULL, &key, &data, flags);
+	warn("put a chunk at %llx\n", code);
 	CBUG(ret);
 }
 
 void
-map_put(sdb_t *sdb, int16_t *p, void *thing, int flags)
+sdb_put(sdb_t *sdb, int16_t *p, void *thing, int flags)
 {
 	morton_t code = pos_morton(p, sdb->dim);
 	_sdb_put(sdb, code, thing, flags);
+	point_debug(p, "sdb_put", sdb->dim);
 }
 
 morton_t

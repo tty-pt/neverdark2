@@ -5,7 +5,7 @@
 #define SDB_IMPLEMENTATION
 #include "sdb.h"
 
-#define M2F(mi) (300.0 * (double) mi / (double) NOISE_MAX)
+#define M2F(mi) (200.0 * (double) mi / (double) NOISE_MAX)
 
 sdb_t chunks_sdb;
 
@@ -36,12 +36,12 @@ chunk_vertex(struct chunk *chunk, int idx)
 }
 
 void
-chunk_load(struct chunk *chunk) {
+chunk_load(struct chunk *chunk, int16_t *s) {
 	static octave_t oct[] = \
-		{{ 8, 1 }, { 7, 2 }, { 6, 3 }, { 5, 4 }, { 4, 5 }, { 3, 6 }, { 2, 7 }, { 1, 8 }};
+		{{ 10, 1 }, { 8, 2 }, { 6, 3 }, { 5, 4 }, { 4, 5 }, { 3, 6 }, { 2, 7 }, { 1, 8 }};
 
-	int16_t s[2] = { 0, 0 };
 	noise_t m[CHUNK_M];
+	memcpy(chunk->pos, s, CHUNK_DIM * sizeof(int16_t));
 
 	noise_oct(m, s, sizeof(oct) / sizeof(octave_t), oct, 0, CHUNK_Y, 2);
 	memcpy(chunk->m, m, CHUNK_M * sizeof(noise_t));
@@ -76,5 +76,39 @@ chunk_load(struct chunk *chunk) {
 }
 
 void chunks_init() {
-	sdb_init(&chunks_sdb, 3, sizeof(struct chunk), NULL, NULL);
+	int16_t c2s[4] = { -CHUNK_SIZE, -CHUNK_SIZE, 0, 0 },
+		c3s[4] = { 0, 0, 0, 0 },
+		c4s[4] = { -CHUNK_SIZE, 0, 0, 0 },
+		c5s[4] = { 0, -CHUNK_SIZE, 0, 0 };
+	struct chunk c2, c3, c4, c5;
+
+	sdb_init(&chunks_sdb, 4, sizeof(struct chunk), NULL, NULL);
+
+	chunk_load(&c2, c2s);
+	sdb_put(&chunks_sdb, c2s, &c2, 0);
+
+	chunk_load(&c3, c3s);
+	sdb_put(&chunks_sdb, c3s, &c3, 0);
+
+	chunk_load(&c4, c4s);
+	sdb_put(&chunks_sdb, c4s, &c4, 0);
+
+	chunk_load(&c5, c5s);
+	sdb_put(&chunks_sdb, c5s, &c5, 0);
+}
+
+void
+chunk_render(int16_t *pv, void *ptr) {
+	struct chunk *chunk = ptr;
+	glPushMatrix();
+	glTranslatef(chunk->pos[0], 0, chunk->pos[1]);
+	glCallList(chunk->dl);
+	glPopMatrix();
+}
+
+void chunks_render() {
+	int16_t min[4] = { - CHUNK_SIZE * 2, - CHUNK_SIZE * 2, 0, 0 };
+	int16_t max[4] = { CHUNK_SIZE * 2, CHUNK_SIZE * 2, 0, 0 };
+	chunks_sdb.callback = &chunk_render;
+	sdb_search(&chunks_sdb, min, max);
 }

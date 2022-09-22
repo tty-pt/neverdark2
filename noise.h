@@ -138,6 +138,34 @@ start:			ce_p[ndim] = c + (cd << z);
 	} while (1);
 }
 
+#if 0
+static inline void
+_noise_mr(noise_t *c, noise_t *v, unsigned x, int16_t *qs, uint16_t ndim, unsigned w, unsigned seed, unsigned cy, uint8_t dim) {
+	int i = dim - 1 - ndim;
+	uint16_t ced = (1 << (cy * (ndim + 1))), cd;
+	noise_t *ce = c + ced;
+
+	ced >>= cy;
+	cd = ced << x;
+
+	for (; c < ce; qs[i] += (1<<x), c += cd)
+		if (ndim == 0) {
+			noise_get_v(v, qs, x, w, seed, dim);
+			noise_quad(c, v, x, w, cy, dim);
+		} else
+			_noise_mr(c, v, x, qs, ndim - 1, w, seed, cy, dim);
+
+	qs[i] -= 1 << cy; // reset
+}
+
+static inline void
+_noise_m(noise_t *c, noise_t *v, unsigned x, int16_t *qs, unsigned w, unsigned seed, unsigned cy, uint8_t dim)
+{
+	_noise_mr(c, v, x, qs, dim - 1, w, seed, cy, dim);
+}
+
+#else
+
 static inline void
 _noise_m(noise_t *c, noise_t *v, unsigned x, int16_t *qs, unsigned w, unsigned seed, unsigned cy, uint8_t dim) {
 	noise_t *ce_p[dim];
@@ -170,6 +198,8 @@ start:			ce_p[ndim] = c + ced;
 		} while (c >= ce_p[ndim]);
 	} while (ndim < dim);
 }
+
+#endif
 
 /* fixes v (vertex values)
  * when noise quad starts before matrix quad aka x > y aka d > l.
