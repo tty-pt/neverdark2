@@ -109,7 +109,7 @@ chunk_render(int16_t *pv, void *ptr) {
 
 void chunks_render() {
 	int16_t min[4] = { - CHUNK_SIZE * 2, - CHUNK_SIZE * 2, 0, 0 };
-	int16_t max[4] = { CHUNK_SIZE * 2, CHUNK_SIZE * 2, 0, 0 };
+	int16_t max[4] = { CHUNK_SIZE * 2 - 1, CHUNK_SIZE * 2 - 1, 0, 0 };
 	chunks_sdb.callback = &chunk_render;
 	sdb_search(&chunks_sdb, min, max);
 }
