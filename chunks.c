@@ -40,11 +40,8 @@ chunk_load(int16_t *s) {
 	static octave_t oct[] = \
 		{{ 10, 1 }, { 8, 2 }, { 6, 3 }, { 5, 4 }, { 4, 5 }, { 3, 6 }, { 2, 7 }, { 1, 8 }};
 
-	noise_t m[CHUNK_M];
 	memcpy(chunk.pos, s, CHUNK_DIM * sizeof(int16_t));
-
-	noise_oct(m, s, sizeof(oct) / sizeof(octave_t), oct, 0, CHUNK_Y, 2);
-	memcpy(chunk.m, m, CHUNK_M * sizeof(noise_t));
+	noise_oct(chunk.m, s, sizeof(oct) / sizeof(octave_t), oct, 0, CHUNK_Y, 2);
 
 	for (int i = 0; i < 1 << CHUNK_Y; i++)
 		for (int j = 0; j < 1 << CHUNK_Y; j++) {
@@ -79,7 +76,19 @@ chunk_load(int16_t *s) {
 }
 
 void chunks_init() {
-	sdb_init(&chunks_sdb, 3, CHUNK_Y, sizeof(struct chunk), NULL, NULL, DB_HASH);
+#if CHUNK_TYPE == DB_BTREE // this is just for testing
+	int16_t c2s[4] = { -CHUNK_SIZE, -CHUNK_SIZE, 0, 0 },
+		c3s[4] = { 0, 0, 0, 0 },
+		c4s[4] = { -CHUNK_SIZE, 0, 0, 0 },
+		c5s[4] = { 0, -CHUNK_SIZE, 0, 0 };
+#endif
+	sdb_init(&chunks_sdb, CHUNK_DIM, CHUNK_Y, sizeof(struct chunk), NULL, NULL, CHUNK_TYPE);
+#if CHUNK_TYPE == DB_BTREE
+	chunk_load(c2s);
+	chunk_load(c3s);
+	chunk_load(c4s);
+	chunk_load(c5s);
+#endif
 }
 
 void

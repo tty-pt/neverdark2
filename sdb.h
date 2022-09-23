@@ -97,30 +97,19 @@ morton_debug(morton_t x, uint8_t dim)
 
 static inline int
 morton_cmp(morton_t a, morton_t b, uint8_t dim, uint8_t cdim) {
-	/* unsigned offset = (4 - dim) * 16; */
-	/* int j; */
+	int	shift_start = 64 - (4 - dim) * 16 - (dim - cdim),
+		shift;
 
-	/* for (j = 0; j < 16; j++) { */
-	/* 	unsigned idx = 1 << (4 * 16 - offset - (j + dim * cdim)); */
-	/* 	if (b & idx) { */
-	/* 		if (a & idx) */
-	/* 			continue; */
-	/* 		else */
-	/* 			return 1; */
-	/* 	} else if (a & idx) */
-	/* 		return -1; */
-	/* } */
+	for (shift = shift_start; shift >= 0; shift -= dim) {
+		if ((b >> shift) & 1) {
+			if (!((a >> shift) & 1))
+				return 1;
+		}
+		else if ((a >> shift) & 1)
+			return -1;
+	}
 
-	/* return 0; */
-	int16_t av[dim], bv[dim];
-	morton_pos(av, a, dim);
-	morton_pos(bv, b, dim);
-	if (av[cdim] > bv[cdim])
-		return -1;
-	else if (av[cdim] < bv[cdim])
-		return 1;
-	else
-		return 0;
+	return 0;
 }
 
 static inline morton_t
@@ -138,26 +127,10 @@ sdb_qload_1(morton_t c, morton_t lm0, morton_t lm1) // LOAD(1000...
 static inline int
 sdb_inrange(morton_t dr, morton_t min, morton_t max, uint8_t dim)
 {
-	int16_t drv[dim], minv[dim], maxv[dim];
-
-	morton_pos(drv, dr, dim);
-	morton_pos(minv, min, dim);
-	morton_pos(maxv, max, dim);
-
-	/* warn("sdb_inrange %llx %llx %llx\n", min, dr, max); */
-	/* morton_debug(min, dim); */
-	/* morton_debug(dr, dim); */
-	/* morton_debug(max, dim); */
-
-	for (int i = 0; i < dim; i++) {
-		if (drv[i] < minv[i] || drv[i] > maxv[i])
-			return 0;
-	}
-
-	/* for (int i = 0; i < dim; i++) */
-	/* 	if (morton_cmp(min, dr, dim, i) < 0 */
-	/* 	    || morton_cmp(dr, max, dim, i) >= 0) */
-	/* 	    return 0; */
+	for (int i = 0; i < dim; i++)
+		if (morton_cmp(min, dr, dim, i) < 0
+		    || morton_cmp(dr, max, dim, i) < 0)
+		    return 0;
 
 	return 1;
 }
@@ -294,13 +267,10 @@ sdb_range_safe(sdb_t *sdb, morton_t min, morton_t max, int dim)
 	/* morton_debug(max, sdb->dim); */
 
 	for (i = dim; i < sdb->dim; i++) {
-		// FIXME account for world limits (might be different from data type limits)
+		if (morton_cmp(lmin, lmax, sdb->dim, i) >= 0)
+			continue;
 
 		int16_t lmaxi = morton_get(lmax, i, sdb->dim);
-		int16_t lmini = morton_get(lmin, i, sdb->dim);
-
-		if (lmaxi >= lmini) // didn't cross data type limit
-			continue;
 
 		// lmin is correct
 		lmax = morton_set(lmax, i, SHRT_MAX, sdb->dim);
@@ -412,6 +382,7 @@ sdb_init(sdb_t *sdb, uint8_t dim, uint8_t y, size_t el_len, DB_ENV *dbe, char *f
 
 	sdb->dim = dim;
 	sdb->el_len = el_len;
+	sdb->type = type;
 	sdb->y = y;
 
 	if ((ret = db_create(&sdb->ptr2point, dbe, 0))
