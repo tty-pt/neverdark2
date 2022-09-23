@@ -263,24 +263,6 @@ key_down(unsigned char key, int x, int y)
 		keymap[toupper(key)] = 0;
 }
 
-/* void */
-/* shader_load(char *name) { */
-
-/* 	struct stat s; */
-/* 	int fd = open(name, O_RDONLY); */
-/* 	CBUG(fd < 0); */
-/* 	int status = fstat(fd, &s); */
-/* 	char *str = mmap(NULL, s.st_size, PROT_READ, MAP_PRIVATE, fd, 0); */
-/* 	int vs = glCreateShader(GL_VERTEX_SHADER); */
-/* 	int success; */
-/* 	glShaderSource(vs, 1, str, NULL); */
-/* 	glCompileShader(vs); */
-/* 	glGetShaderiv(vs, GL_COMPILE_STATUS, &success); */
-/* 	CBUG(!success); */
-/* 	munmap(str); */
-/* 	close(fd); */
-/* } */
-
 int
 main(int argc, char *argv[])
 {
@@ -295,15 +277,12 @@ main(int argc, char *argv[])
 	glEnable(GL_LIGHT0);
 	CBUG(model_load(&fox, "fox2.glb"));
 	chunks_init();
-	/* int16_t chunk_pos[] = { 0, 0 }; */
-	/* chunk_load(&chunk, chunk_pos); */
 	glLightfv(GL_LIGHT0, GL_POSITION, light_pos);
 
 	warn("OpenGL version: %s\n", glGetString(GL_VERSION));
 	text_send("auth One=qovmjbl");
 	ltick = tick_get();
 
-	/* warn("sizeof(dReal) = %lu\n", sizeof(dReal)); */
 	glutDisplayFunc(display);
 	glutReshapeFunc(resize);
 	glutTimerFunc(60, update, 0);
@@ -311,7 +290,6 @@ main(int argc, char *argv[])
 	glutKeyboardUpFunc(key_up);
 	glutKeyboardFunc(key_down);
 	viewport_init(w, h);
-	/* glClearColor(0.0, 0.0, 0.0, 0.0); */
 	glutMainLoop();
 
 	close(sockfd);

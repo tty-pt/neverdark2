@@ -24,8 +24,6 @@ chunk_normal(struct chunk *chunk, int idx)
 	chunk->normals[idx][1] = 2.0f;
 	chunk->normals[idx][2] = hd - hu;
 	glm_vec3_normalize(chunk->normals[idx]);
-	/* warn("chunk_normal %f %f %f\n", normal[0], normal[1], normal[2]); */
-	/* glNormal3fv(normal); */
 }
 
 static inline void
@@ -81,17 +79,7 @@ chunk_load(int16_t *s) {
 }
 
 void chunks_init() {
-	/* int16_t c2s[4] = { -CHUNK_SIZE, -CHUNK_SIZE, 0, 0 }, */
-	/* 	c3s[4] = { 0, 0, 0, 0 }, */
-	/* 	c4s[4] = { -CHUNK_SIZE, 0, 0, 0 }, */
-	/* 	c5s[4] = { 0, -CHUNK_SIZE, 0, 0 }; */
-
 	sdb_init(&chunks_sdb, 3, CHUNK_Y, sizeof(struct chunk), NULL, NULL, DB_HASH);
-
-/* 	chunk_load(c2s); */
-/* 	chunk_load(c3s); */
-/* 	chunk_load(c4s); */
-/* 	chunk_load(c5s); */
 }
 
 void
