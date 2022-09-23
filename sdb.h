@@ -298,14 +298,6 @@ sdb_range_safe(sdb_t *sdb, morton_t min, morton_t max, int dim)
 	return sdb_range_unsafe(sdb, lmin, lmax);
 }
 
-static inline morton_t
-morton_unscramble(morton_t code, uint8_t dim)
-{
-	morton_t result;
-	morton_pos((int16_t *) &result, code, dim);
-	return result;
-}
-
 static int
 sdb_hrange_safe(sdb_t *sdb, int16_t *min, int16_t *max, uint8_t dim)
 {
@@ -338,7 +330,6 @@ sdb_hrange_safe(sdb_t *sdb, int16_t *min, int16_t *max, uint8_t dim)
 	return ret;
 }
 
-// FIXME there is a memory leak in which sdb gets overwritten
 void
 sdb_search(sdb_t *sdb, int16_t *min, int16_t *max)
 {
