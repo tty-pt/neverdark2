@@ -2,6 +2,8 @@
 #define SDB_H
 
 // see http://www.vision-tools.com/h-tropf/multidimensionalrangequery.pdf
+// TODO support duplicates
+// TODO use cursors instead of a callback
 
 #include <db4/db.h>
 /* value returned when no position is found */
@@ -12,12 +14,13 @@ typedef void (*sdb_callback_t)(int16_t *pv, void *ptr);
 typedef struct {
 	DB *point2ptr;
 	DB *ptr2point;
-	unsigned char dim;
+	uint8_t dim, y;
 	size_t el_len;
 	sdb_callback_t callback;
+	DBTYPE type;
 } sdb_t;
 
-int sdb_init(sdb_t *, unsigned char dim, size_t el_len, DB_ENV *dbe, char *fname);
+int sdb_init(sdb_t *, uint8_t dim, uint8_t y, size_t el_len, DB_ENV *dbe, char *fname, DBTYPE type);
 void sdb_search(sdb_t *, int16_t *min, int16_t *max);
 int sdb_close(sdb_t *);
 void sdb_where(int16_t *p, sdb_t *, void *thing);
@@ -327,17 +330,63 @@ morton_unscramble(morton_t code, uint8_t dim)
 	return result;
 }
 
+static int
+sdb_hrange_safe(sdb_t *sdb, int16_t *min, int16_t *max, uint8_t dim)
+{
+	int16_t lmin[sdb->dim], lmax[sdb->dim];
+	int16_t mini, maxi, j, step = 1 << sdb->y;
+	int ret = 0;
+
+	memcpy(lmin, min, sdb->dim * sizeof(int16_t));
+	memcpy(lmax, max, sdb->dim * sizeof(int16_t));
+
+	mini = (min[dim] >> sdb->y) << sdb->y;
+	maxi = (max[dim] >> sdb->y) << sdb->y;
+
+	/* warn("sdb_hrange_safe %hhu %d %hd %hd\n", dim, step, mini, maxi); */
+	/* point_debug(min, "min", sdb->dim); */
+	/* point_debug(max, "max", sdb->dim); */
+
+	if (dim == 0)
+		for (j = mini; j <= maxi; j += step) {
+			lmin[dim] = j;
+			/* warn("sdb_hrange_safej %hhu %hd\n", dim, j); */
+			/* point_debug(lmin, "lmin", sdb->dim); */
+			void *ptr = sdb_get(sdb, lmin);
+			if (ptr)
+				ret++;
+			sdb->callback(lmin, ptr);
+		}
+	else {
+		lmax[dim] = maxi;
+		for (j = mini; j <= maxi; j += step) {
+			/* warn("sdb_hrange_safej %hhu %hd\n", dim, j); */
+			lmin[dim] = j;
+			/* point_debug(lmin, "lmin", sdb->dim); */
+			/* point_debug(lmax, "lmax", sdb->dim); */
+			ret += sdb_hrange_safe(sdb, lmin, lmax, dim - 1);
+		}
+	}
+
+	return ret;
+}
+
 // FIXME there is a memory leak in which sdb gets overwritten
 void
 sdb_search(sdb_t *sdb, int16_t *min, int16_t *max)
 {
-	morton_t morton_min = pos_morton(min, sdb->dim),
-		 morton_max = pos_morton(max, sdb->dim);
-
 	/* warn("sdb_search %llx %llx\n", morton_min, morton_max); */
 
-	sdb_range_safe(sdb, morton_min, morton_max, 0);
+	if (sdb->type == DB_BTREE) {
+		morton_t morton_min = pos_morton(min, sdb->dim),
+			 morton_max = pos_morton(max, sdb->dim);
+
+		sdb_range_safe(sdb, morton_min, morton_max, 0);
+	} else {
+		sdb_hrange_safe(sdb, min, max, sdb->dim - 1);
+	}
 	/* warn("sdb_search result %d\n", ret); */
+
 }
 
 static int
@@ -358,24 +407,37 @@ sdb_mki_code(DB *sec, const DBT *key, const DBT *data, DBT *result)
 }
 
 int
-sdb_init(sdb_t *sdb, unsigned char dim, size_t el_len, DB_ENV *dbe, char *fname) {
+sdb_init(sdb_t *sdb, uint8_t dim, uint8_t y, size_t el_len, DB_ENV *dbe, char *fname, DBTYPE type) {
 	int ret = 0;
 
 	sdb->dim = dim;
 	sdb->el_len = el_len;
+	sdb->y = y;
 
 	if ((ret = db_create(&sdb->ptr2point, dbe, 0))
 	    || (ret = sdb->ptr2point->open(sdb->ptr2point, NULL, fname, fname, DB_HASH, DB_CREATE, 0664)))
 		return ret;
 
-	if ((ret = db_create(&sdb->point2ptr, dbe, 0))
-	    || (ret = sdb->point2ptr->set_bt_compare(sdb->point2ptr, sdb_cmp))
-	    || (ret = sdb->point2ptr->open(sdb->point2ptr, NULL, fname, fname, DB_BTREE, DB_CREATE, 0664))
-	    || (ret = sdb->ptr2point->associate(sdb->ptr2point, NULL, sdb->point2ptr, sdb_mki_code, DB_CREATE)))
-	
-		sdb->point2ptr->close(sdb->point2ptr, 0);
-	else
-		return 0;
+	if (type == DB_BTREE) {
+		if ((ret = db_create(&sdb->point2ptr, dbe, 0))
+		    || (ret = sdb->point2ptr->set_bt_compare(sdb->point2ptr, sdb_cmp))
+		    || (ret = sdb->point2ptr->open(sdb->point2ptr, NULL, fname, fname, DB_BTREE, DB_CREATE, 0664))
+		    || (ret = sdb->ptr2point->associate(sdb->ptr2point, NULL, sdb->point2ptr, sdb_mki_code, DB_CREATE)))
+
+			sdb->point2ptr->close(sdb->point2ptr, 0);
+		else
+			return 0;
+	} else {
+		CBUG(type != DB_HASH);
+
+		if ((ret = db_create(&sdb->point2ptr, dbe, 0))
+		    || (ret = sdb->point2ptr->open(sdb->point2ptr, NULL, fname, fname, DB_HASH, DB_CREATE, 0664))
+		    || (ret = sdb->ptr2point->associate(sdb->ptr2point, NULL, sdb->point2ptr, sdb_mki_code, DB_CREATE)))
+
+			sdb->point2ptr->close(sdb->point2ptr, 0);
+		else
+			return 0;
+	}
 
 	sdb->ptr2point->close(sdb->ptr2point, 0);
 	return ret;
@@ -468,6 +530,7 @@ sdb_get(sdb_t *sdb, int16_t *p)
 		res = cur->c_pget(cur, &key, &pkey, &data, DB_SET);
 		switch (res) {
 		case 0:
+			cur->close(cur);
 			return pkey.data;
 		case DB_NOTFOUND:
 			cur->close(cur);

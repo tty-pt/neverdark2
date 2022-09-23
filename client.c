@@ -255,6 +255,8 @@ void
 key_down(unsigned char key, int x, int y)
 {
 	keymap[key] = tick_get();
+	if (!keymap[key])
+		keymap[key] = 1;
 	if (isupper(key))
 		keymap[tolower(key)] = 0;
 	else if (islower(key))

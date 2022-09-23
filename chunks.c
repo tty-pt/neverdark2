@@ -37,6 +37,7 @@ chunk_vertex(struct chunk *chunk, int idx)
 
 struct chunk
 chunk_load(int16_t *s) {
+	point_debug(s, "chunk_load", CHUNK_DIM);
 	struct chunk chunk;
 	static octave_t oct[] = \
 		{{ 10, 1 }, { 8, 2 }, { 6, 3 }, { 5, 4 }, { 4, 5 }, { 3, 6 }, { 2, 7 }, { 1, 8 }};
@@ -79,34 +80,30 @@ chunk_load(int16_t *s) {
 	return chunk;
 }
 
-void
-chunk_dont_load(int16_t *pv, void *ptr) {
-	morton_t p = pos_morton(pv, CHUNK_DIM);
-}
-
-void
-chunks_load(int16_t *min, int16_t *max) {
-	chunks_sdb.callback = &chunk_dont_load;
-	sdb_search(&chunks_sdb, min, max);
-}
-
 void chunks_init() {
-	int16_t c2s[4] = { -CHUNK_SIZE, -CHUNK_SIZE, 0, 0 },
-		c3s[4] = { 0, 0, 0, 0 },
-		c4s[4] = { -CHUNK_SIZE, 0, 0, 0 },
-		c5s[4] = { 0, -CHUNK_SIZE, 0, 0 };
+	/* int16_t c2s[4] = { -CHUNK_SIZE, -CHUNK_SIZE, 0, 0 }, */
+	/* 	c3s[4] = { 0, 0, 0, 0 }, */
+	/* 	c4s[4] = { -CHUNK_SIZE, 0, 0, 0 }, */
+	/* 	c5s[4] = { 0, -CHUNK_SIZE, 0, 0 }; */
 
-	sdb_init(&chunks_sdb, 4, sizeof(struct chunk), NULL, NULL);
+	sdb_init(&chunks_sdb, 3, CHUNK_Y, sizeof(struct chunk), NULL, NULL, DB_HASH);
 
-	chunk_load(c2s);
-	chunk_load(c3s);
-	chunk_load(c4s);
-	chunk_load(c5s);
+/* 	chunk_load(c2s); */
+/* 	chunk_load(c3s); */
+/* 	chunk_load(c4s); */
+/* 	chunk_load(c5s); */
 }
 
 void
 chunk_render(int16_t *pv, void *ptr) {
-	struct chunk *chunk = ptr;
+	struct chunk *chunk;
+
+	if (!ptr) {
+		chunk_load(pv);
+		return;
+	}
+
+	chunk = ptr;
 	glPushMatrix();
 	glTranslatef(chunk->pos[0], 0, chunk->pos[1]);
 	glCallList(chunk->dl);
