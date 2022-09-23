@@ -35,44 +35,59 @@ chunk_vertex(struct chunk *chunk, int idx)
 	glVertex3fv(chunk->vertices[idx]);
 }
 
-void
-chunk_load(struct chunk *chunk, int16_t *s) {
+struct chunk
+chunk_load(int16_t *s) {
+	struct chunk chunk;
 	static octave_t oct[] = \
 		{{ 10, 1 }, { 8, 2 }, { 6, 3 }, { 5, 4 }, { 4, 5 }, { 3, 6 }, { 2, 7 }, { 1, 8 }};
 
 	noise_t m[CHUNK_M];
-	memcpy(chunk->pos, s, CHUNK_DIM * sizeof(int16_t));
+	memcpy(chunk.pos, s, CHUNK_DIM * sizeof(int16_t));
 
 	noise_oct(m, s, sizeof(oct) / sizeof(octave_t), oct, 0, CHUNK_Y, 2);
-	memcpy(chunk->m, m, CHUNK_M * sizeof(noise_t));
+	memcpy(chunk.m, m, CHUNK_M * sizeof(noise_t));
 
 	for (int i = 0; i < 1 << CHUNK_Y; i++)
 		for (int j = 0; j < 1 << CHUNK_Y; j++) {
 			int idx = i * (1 << CHUNK_Y) + j;
-			chunk->vertices[idx][0] = (double) i;
-			chunk->vertices[idx][1] = M2F(chunk->m[idx]);
-			chunk->vertices[idx][2] = (double) j;
-			chunk_normal(chunk, idx);
+			chunk.vertices[idx][0] = (double) i;
+			chunk.vertices[idx][1] = M2F(chunk.m[idx]);
+			chunk.vertices[idx][2] = (double) j;
+			chunk_normal(&chunk, idx);
 		}
 
-	chunk->dl = glGenLists(1);
-	glNewList(chunk->dl, GL_COMPILE);
+	chunk.dl = glGenLists(1);
+	glNewList(chunk.dl, GL_COMPILE);
 	glDisable(GL_TEXTURE_2D);
 
 	for (int i = 0; i < CHUNK_SIZE - 1; i++) {
 		int idx = i * CHUNK_SIZE;
 		glBegin(GL_TRIANGLE_STRIP);
-		chunk_vertex(chunk, idx);
-		chunk_vertex(chunk, idx + CHUNK_SIZE);
+		chunk_vertex(&chunk, idx);
+		chunk_vertex(&chunk, idx + CHUNK_SIZE);
 		for (int j = 0; j < CHUNK_SIZE - 1; j++) {
-			chunk_vertex(chunk, idx + j + 1);
-			chunk_vertex(chunk, idx + j + CHUNK_SIZE + 1);
+			chunk_vertex(&chunk, idx + j + 1);
+			chunk_vertex(&chunk, idx + j + CHUNK_SIZE + 1);
 	   	}
 		glEnd();
 	}
 
 	glEnable(GL_TEXTURE_2D);
 	glEndList();
+
+	sdb_put(&chunks_sdb, s, &chunk, 0);
+	return chunk;
+}
+
+void
+chunk_dont_load(int16_t *pv, void *ptr) {
+	morton_t p = pos_morton(pv, CHUNK_DIM);
+}
+
+void
+chunks_load(int16_t *min, int16_t *max) {
+	chunks_sdb.callback = &chunk_dont_load;
+	sdb_search(&chunks_sdb, min, max);
 }
 
 void chunks_init() {
@@ -80,21 +95,13 @@ void chunks_init() {
 		c3s[4] = { 0, 0, 0, 0 },
 		c4s[4] = { -CHUNK_SIZE, 0, 0, 0 },
 		c5s[4] = { 0, -CHUNK_SIZE, 0, 0 };
-	struct chunk c2, c3, c4, c5;
 
 	sdb_init(&chunks_sdb, 4, sizeof(struct chunk), NULL, NULL);
 
-	chunk_load(&c2, c2s);
-	sdb_put(&chunks_sdb, c2s, &c2, 0);
-
-	chunk_load(&c3, c3s);
-	sdb_put(&chunks_sdb, c3s, &c3, 0);
-
-	chunk_load(&c4, c4s);
-	sdb_put(&chunks_sdb, c4s, &c4, 0);
-
-	chunk_load(&c5, c5s);
-	sdb_put(&chunks_sdb, c5s, &c5, 0);
+	chunk_load(c2s);
+	chunk_load(c3s);
+	chunk_load(c4s);
+	chunk_load(c5s);
 }
 
 void

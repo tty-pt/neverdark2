@@ -17,7 +17,6 @@ struct chunk {
 	int dl;
 };
 
-void chunk_load(struct chunk *, int16_t *s);
 void chunks_init();
 void chunks_render();
 

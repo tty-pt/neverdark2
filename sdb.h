@@ -206,9 +206,9 @@ sdb_range_unsafe(sdb_t *sdb, morton_t min, morton_t max)
 	morton_pos(minv, min, sdb->dim);
 	morton_pos(maxv, max, sdb->dim);
 
-	warn("sdb_range_unsafe min %llx max %llx\n", min, max);
-	morton_debug(min, sdb->dim);
-	morton_debug(max, sdb->dim);
+	/* warn("sdb_range_unsafe min %llx max %llx\n", min, max); */
+	/* morton_debug(min, sdb->dim); */
+	/* morton_debug(max, sdb->dim); */
 	/* CBUG((smorton_t) min > (smorton_t) max); */
 	if (sdb->point2ptr->cursor(sdb->point2ptr, NULL, &cur, 0))
 		return -1;
@@ -241,7 +241,7 @@ next:	ret = cur->c_pget(cur, &key, &pkey, &data, dbflags);
 
 	/* warn("found chunk at %llx\n", code); */
 	if (sdb_inrange(code, min, max, sdb->dim)) {
-		warn("%llx in range!\n", code);
+		/* warn("%llx in range!\n", code); */
 		int16_t pv[sdb->dim];
 		morton_pos(pv, code, sdb->dim);
 		sdb->callback(pv, pkey.data);
@@ -333,12 +333,11 @@ sdb_search(sdb_t *sdb, int16_t *min, int16_t *max)
 {
 	morton_t morton_min = pos_morton(min, sdb->dim),
 		 morton_max = pos_morton(max, sdb->dim);
-	int ret;
 
-	warn("sdb_search %llx %llx\n", morton_min, morton_max);
+	/* warn("sdb_search %llx %llx\n", morton_min, morton_max); */
 
-	ret = sdb_range_safe(sdb, morton_min, morton_max, 0);
-	warn("sdb_search result %d\n", ret);
+	sdb_range_safe(sdb, morton_min, morton_max, 0);
+	/* warn("sdb_search result %d\n", ret); */
 }
 
 static int
@@ -405,7 +404,6 @@ _sdb_put(sdb_t *sdb, morton_t code, void *thing, int flags)
 	data.size = sizeof(code);
 
 	ret = sdb->ptr2point->put(sdb->ptr2point, NULL, &key, &data, flags);
-	warn("put a chunk at %llx\n", code);
 	CBUG(ret);
 }
 
@@ -414,7 +412,7 @@ sdb_put(sdb_t *sdb, int16_t *p, void *thing, int flags)
 {
 	morton_t code = pos_morton(p, sdb->dim);
 	_sdb_put(sdb, code, thing, flags);
-	point_debug(p, "sdb_put", sdb->dim);
+	/* point_debug(p, "sdb_put", sdb->dim); */
 }
 
 morton_t
