@@ -298,6 +298,7 @@ sdb_range_safe(sdb_t *sdb, morton_t min, morton_t max, int dim)
 	return sdb_range_unsafe(sdb, lmin, lmax);
 }
 
+// TODO make this actually "safe" aka working across data type boundaries
 static int
 sdb_hrange_safe(sdb_t *sdb, int16_t *min, int16_t *max, uint8_t dim)
 {
@@ -311,19 +312,43 @@ sdb_hrange_safe(sdb_t *sdb, int16_t *min, int16_t *max, uint8_t dim)
 	mini = (min[dim] >> sdb->y) << sdb->y;
 	maxi = (max[dim] >> sdb->y) << sdb->y;
 
-	if (dim == 0)
-		for (j = mini; j <= maxi; j += step) {
-			lmin[dim] = j;
-			void *ptr = sdb_get(sdb, lmin);
-			if (ptr)
-				ret++;
-			sdb->callback(lmin, ptr);
+	if (mini > maxi) {
+		if (dim == 0)
+			for (j = mini; j <= SHRT_MAX; j++) {
+				lmin[dim] = j;
+				void *ptr = sdb_get(sdb, lmin);
+				if (ptr)
+					ret++;
+				sdb->callback(lmin, ptr);
+			}
+		else {
+			lmax[dim] = SHRT_MAX;
+			for (j = mini; j <= SHRT_MAX; j += step) {
+				lmin[dim] = j;
+				ret += sdb_hrange_safe(sdb, lmin, lmax, dim - 1);
+			}
+
+			lmax[dim] = maxi;
+			for (j = SHRT_MIN; j <= maxi; j += step) {
+				lmin[dim] = j;
+				ret += sdb_hrange_safe(sdb, lmin, lmax, dim - 1);
+			}
 		}
-	else {
-		lmax[dim] = maxi;
-		for (j = mini; j <= maxi; j += step) {
-			lmin[dim] = j;
-			ret += sdb_hrange_safe(sdb, lmin, lmax, dim - 1);
+	} else {
+		if (dim == 0)
+			for (j = mini; j <= maxi; j += step) {
+				lmin[dim] = j;
+				void *ptr = sdb_get(sdb, lmin);
+				if (ptr)
+					ret++;
+				sdb->callback(lmin, ptr);
+			}
+		else {
+			lmax[dim] = maxi;
+			for (j = mini; j <= maxi; j += step) {
+				lmin[dim] = j;
+				ret += sdb_hrange_safe(sdb, lmin, lmax, dim - 1);
+			}
 		}
 	}
 
