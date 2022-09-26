@@ -1,6 +1,6 @@
 .SUFFIXES: .o .c
 
-CFLAGS += -g -Wall -I/usr/local/include -I/usr/X11R6/include
+CFLAGS += -O0 -g -Wall -I/usr/local/include -I/usr/X11R6/include
 LDFLAGS += -L/usr/local/lib 
 
 SERVER_LDFLAGS := -ldb

@@ -12,21 +12,23 @@
 typedef void (*sdb_callback_t)(int16_t *pv, void *ptr);
 
 typedef struct {
-	DB *point2ptr;
-	DB *ptr2point;
+	DB *primary;
+	DB *point;
 	uint8_t dim, y;
-	size_t el_len;
+	size_t ekl; // extra key length
+	size_t vl; // value length
 	sdb_callback_t callback;
+	uint8_t max_dim;
 	DBTYPE type;
 } sdb_t;
 
-int sdb_init(sdb_t *, uint8_t dim, uint8_t y, size_t el_len, DB_ENV *dbe, char *fname, DBTYPE type);
+int sdb_init(sdb_t *, uint8_t dim, uint8_t y, size_t ekl, size_t len, DB_ENV *dbe, char *fname, DBTYPE type);
 void sdb_search(sdb_t *, int16_t *min, int16_t *max);
 int sdb_close(sdb_t *);
 void sdb_where(int16_t *p, sdb_t *, void *thing);
 int sdb_delete(sdb_t *, void *what);
 void *sdb_get(sdb_t *, int16_t *at);
-void sdb_put(sdb_t *, int16_t *p, void *thing, int flags);
+void sdb_put(sdb_t *, void *thing, int flags);
 
 #ifdef SDB_IMPLEMENTATION
 #include "debug.h"
@@ -181,7 +183,7 @@ sdb_range_unsafe(sdb_t *sdb, morton_t min, morton_t max)
 	/* morton_debug(min, sdb->dim); */
 	/* morton_debug(max, sdb->dim); */
 	/* CBUG((smorton_t) min > (smorton_t) max); */
-	if (sdb->point2ptr->cursor(sdb->point2ptr, NULL, &cur, 0))
+	if (sdb->point->cursor(sdb->point, NULL, &cur, 0))
 		return -1;
 
 	memset(&data, 0, sizeof(DBT));
@@ -312,6 +314,10 @@ sdb_hrange_safe(sdb_t *sdb, int16_t *min, int16_t *max, uint8_t dim)
 	mini = (min[dim] >> sdb->y) << sdb->y;
 	maxi = (max[dim] >> sdb->y) << sdb->y;
 
+	/* warn("sdb_hrange_safe %hhu\n", dim); */
+	/* point_debug(min, "min", sdb->dim); */
+	/* point_debug(max, "max", sdb->dim); */
+
 	if (mini > maxi) {
 		if (dim == 0)
 			for (j = mini; j <= SHRT_MAX; j++) {
@@ -361,8 +367,8 @@ sdb_search(sdb_t *sdb, int16_t *min, int16_t *max)
 	/* warn("sdb_search %llx %llx\n", morton_min, morton_max); */
 
 	if (sdb->type == DB_BTREE) {
-		morton_t morton_min = pos_morton(min, sdb->dim),
-			 morton_max = pos_morton(max, sdb->dim);
+		morton_t morton_min = pos_morton(min, 4),
+			 morton_max = pos_morton(max, 4);
 
 		sdb_range_safe(sdb, morton_min, morton_max, 0);
 	} else {
@@ -384,58 +390,63 @@ sdb_cmp(DB *sec, const DBT *a_r, const DBT *b_r)
 static int
 sdb_mki_code(DB *sec, const DBT *key, const DBT *data, DBT *result)
 {
+	morton_t *code = (morton_t *) malloc(sizeof(morton_t));
+	*code = pos_morton(data->data, 4);
 	result->size = sizeof(morton_t);
-	result->data = data->data;
+	result->data = code;
+	result->flags = DB_DBT_APPMALLOC;
 	return 0;
 }
 
 int
-sdb_init(sdb_t *sdb, uint8_t dim, uint8_t y, size_t el_len, DB_ENV *dbe, char *fname, DBTYPE type) {
+sdb_init(sdb_t *sdb, uint8_t dim, uint8_t y, size_t ekl, size_t len, DB_ENV *dbe, char *fname, DBTYPE type) {
 	int ret = 0;
 
 	sdb->dim = dim;
-	sdb->el_len = el_len;
+	sdb->ekl = ekl;
+	sdb->vl = len - ekl - sizeof(int16_t) * 4;
 	sdb->type = type;
 	sdb->y = y;
+	sdb->max_dim = 4; // change this if coords can be int8_t for example (a lot of other fixed needed for that to work)
 
-	if ((ret = db_create(&sdb->ptr2point, dbe, 0))
-	    || (ret = sdb->ptr2point->open(sdb->ptr2point, NULL, fname, fname, DB_HASH, DB_CREATE, 0664)))
+	if ((ret = db_create(&sdb->primary, dbe, 0))
+	    || (ret = sdb->primary->open(sdb->primary, NULL, fname, fname, DB_HASH, DB_CREATE, 0664)))
 		return ret;
 
 	if (type == DB_BTREE) {
-		if ((ret = db_create(&sdb->point2ptr, dbe, 0))
-		    || (ret = sdb->point2ptr->set_bt_compare(sdb->point2ptr, sdb_cmp))
-		    || (ret = sdb->point2ptr->open(sdb->point2ptr, NULL, fname, fname, DB_BTREE, DB_CREATE, 0664))
-		    || (ret = sdb->ptr2point->associate(sdb->ptr2point, NULL, sdb->point2ptr, sdb_mki_code, DB_CREATE)))
+		if ((ret = db_create(&sdb->point, dbe, 0))
+		    || (ret = sdb->point->set_bt_compare(sdb->point, sdb_cmp))
+		    || (ret = sdb->point->open(sdb->point, NULL, fname, fname, DB_BTREE, DB_CREATE, 0664))
+		    || (ret = sdb->primary->associate(sdb->primary, NULL, sdb->point, sdb_mki_code, DB_CREATE)))
 
-			sdb->point2ptr->close(sdb->point2ptr, 0);
+			sdb->point->close(sdb->point, 0);
 		else
 			return 0;
 	} else {
 		CBUG(type != DB_HASH);
 
-		if ((ret = db_create(&sdb->point2ptr, dbe, 0))
-		    || (ret = sdb->point2ptr->open(sdb->point2ptr, NULL, fname, fname, DB_HASH, DB_CREATE, 0664))
-		    || (ret = sdb->ptr2point->associate(sdb->ptr2point, NULL, sdb->point2ptr, sdb_mki_code, DB_CREATE)))
+		if ((ret = db_create(&sdb->point, dbe, 0))
+		    || (ret = sdb->point->open(sdb->point, NULL, fname, fname, DB_HASH, DB_CREATE, 0664))
+		    || (ret = sdb->primary->associate(sdb->primary, NULL, sdb->point, sdb_mki_code, DB_CREATE)))
 
-			sdb->point2ptr->close(sdb->point2ptr, 0);
+			sdb->point->close(sdb->point, 0);
 		else
 			return 0;
 	}
 
-	sdb->ptr2point->close(sdb->ptr2point, 0);
+	sdb->primary->close(sdb->primary, 0);
 	return ret;
 }
 
 int
 sdb_close(sdb_t *sdb)
 {
-	return sdb->point2ptr->close(sdb->point2ptr, 0)
-		|| sdb->ptr2point->close(sdb->ptr2point, 0);
+	return sdb->point->close(sdb->point, 0)
+		|| sdb->primary->close(sdb->primary, 0);
 }
 
-static void
-_sdb_put(sdb_t *sdb, morton_t code, void *thing, int flags)
+void
+sdb_put(sdb_t *sdb, void *thing, int flags)
 {
 	DBT key;
 	DBT data;
@@ -445,20 +456,12 @@ _sdb_put(sdb_t *sdb, morton_t code, void *thing, int flags)
 	memset(&data, 0, sizeof(DBT));
 
 	key.data = thing;
-	key.size = sdb->el_len;
-	data.data = &code;
-	data.size = sizeof(code);
+	key.size = sizeof(int16_t) * 4 + sdb->ekl;
+	data.data = thing;
+	data.size = key.size + sdb->vl;
 
-	ret = sdb->ptr2point->put(sdb->ptr2point, NULL, &key, &data, flags);
+	ret = sdb->primary->put(sdb->primary, NULL, &key, &data, flags);
 	CBUG(ret);
-}
-
-void
-sdb_put(sdb_t *sdb, int16_t *p, void *thing, int flags)
-{
-	morton_t code = pos_morton(p, sdb->dim);
-	_sdb_put(sdb, code, thing, flags);
-	/* point_debug(p, "sdb_put", sdb->dim); */
 }
 
 morton_t
@@ -471,9 +474,9 @@ _sdb_where(sdb_t *sdb, void *thing)
 	memset(&key, 0, sizeof(DBT));
 	memset(&data, 0, sizeof(DBT));
 	key.data = thing;
-	key.size = sdb->el_len;
+	key.size = sizeof(int16_t) * 4 + sdb->ekl;
 
-	if ((bad = sdb->ptr2point->get(sdb->ptr2point, NULL, &key, &data, 0))) {
+	if ((bad = sdb->primary->get(sdb->primary, NULL, &key, &data, 0))) {
 		static morton_t code = SDB_INVALID;
 		if (bad && bad != DB_NOTFOUND)
 			warn("sdb_where %p %s", thing, db_strerror(bad));
@@ -493,14 +496,14 @@ sdb_where(int16_t *p, sdb_t *sdb, void *thing)
 void *
 sdb_get(sdb_t *sdb, int16_t *p)
 {
-	morton_t at = pos_morton(p, sdb->dim);
+	morton_t at = pos_morton(p, 4);
 	DBC *cur;
 	DBT pkey;
 	DBT data;
 	DBT key;
 	int res;
 
-	if (sdb->point2ptr->cursor(sdb->point2ptr, NULL, &cur, 0))
+	if (sdb->point->cursor(sdb->point, NULL, &cur, 0))
 		return NULL;
 
 	memset(&pkey, 0, sizeof(DBT));
@@ -515,12 +518,13 @@ sdb_get(sdb_t *sdb, int16_t *p)
 		switch (res) {
 		case 0:
 			cur->close(cur);
-			return pkey.data;
+			return data.data;
 		case DB_NOTFOUND:
 			cur->close(cur);
 			return NULL;
 		default:
 			BUG("%s", db_strerror(res));
+			return NULL;
 		}
 	}
 }
@@ -529,11 +533,10 @@ int
 sdb_delete(sdb_t *sdb, void *what)
 {
 	DBT key;
-	morton_t code = _sdb_where(sdb, what);
 	memset(&key, 0, sizeof(key));
-	key.data = &code;
-	key.size = sizeof(code);
-	return sdb->point2ptr->del(sdb->point2ptr, NULL, &key, 0);
+	key.data = what;
+	key.size = sizeof(int16_t) * 4 + sdb->ekl;
+	return sdb->primary->del(sdb->primary, NULL, &key, 0);
 }
 
 #endif
