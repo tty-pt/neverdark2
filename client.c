@@ -2,24 +2,20 @@
 #include <cglm/cglm.h>
 #include <ctype.h>
 #include <fcntl.h>
-/* #include <GL/gl.h> */
-/* #include <GL/glx.h> */
-/* #include <GL/glu.h> */
-/* #include <GLFW/glfw3.h> */
-#include <GL/freeglut.h>
 #include <netdb.h>
 /* #include <ode/ode.h> */
 #include <stdlib.h>
 #include <string.h>
-/* #include <sys/mman.h> */
+#include <sys/mman.h>
 #include <sys/socket.h>
-/* #include <sys/stat.h> */
+#include <sys/stat.h>
 #include <sys/time.h>
 #include <unistd.h>
 #include "model.h"
 #include "shared.h"
 #include "chunks.h"
 #include "debug.h"
+#include "gl_global.h"
 
 struct {
 	vec3 position;
@@ -38,8 +34,23 @@ int updated_cam = 1;
 
 vec3 frontv = { 0, 0, -1.0f };
 vec3 upv = { 0, 1.0f, 0 };
+mat4 viewm = {
+	{ 1.0f, 0, 0, 0 },
+	{ 0, 1.0f, 0, 0 },
+	{ 0, 0, 1.0f, 0 },
+	{ 0, 0, 0, 1.0f },
+};
+mat4 projm = {
+	{ 1.0f, 0, 0, 0 },
+	{ 0, 1.0f, 0, 0 },
+	{ 0, 0, 1.0f, 0 },
+	{ 0, 0, 0, 1.0f },
+};
 struct model fox;
-struct chunk chunk;
+unsigned sprog;
+unsigned colorLoc;
+unsigned viewLoc, projectionLoc;
+unsigned lightPosLoc, viewPosLoc, lightColorLoc, objectColorLoc, objectTextureLoc;
 
 static inline void
 sock_init() {
@@ -90,29 +101,85 @@ viewport_init(int nw, int nh)
 	glMatrixMode(GL_PROJECTION);
 	glLoadIdentity();
 	gluPerspective(45.0f, (float) w / (float) h, 0.1f, 1000.0f);
+	glm_perspective(glm_rad(45.0f), (float) w / (float) h, 0.1f, 1000.0f, projm);
+	glUniformMatrix4fv(projectionLoc, 1, 0, &projm[0][0]);
+
 	glm_quat_rotatev(cam.rotation, frontv, lookat);
 	glm_quat_rotatev(cam.rotation, upv, up);
 	glm_vec3_add(cam.position, lookat, lookat);
+	glm_lookat(cam.position, lookat, up, viewm);
+	glUniformMatrix4fv(viewLoc, 1, 0, &viewm[0][0]);
 	gluLookAt(cam.position[0], cam.position[1], cam.position[2],
 		  lookat[0], lookat[1], lookat[2],
 		  up[0], up[1], up[2]);
 	glMatrixMode(GL_MODELVIEW);
 	glLoadIdentity();
-	warn("cam p(%f,%f,%f) la(%f,%f,%f) u(%f,%f,%f)\n",
-	     cam.position[0], cam.position[1], cam.position[2],
-	     lookat[0], lookat[1], lookat[2],
-	     up[0], up[1], up[2]);
+	/* warn("cam p(%f,%f,%f) la(%f,%f,%f) u(%f,%f,%f)\n", */
+	/*      cam.position[0], cam.position[1], cam.position[2], */
+	/*      lookat[0], lookat[1], lookat[2], */
+	/*      up[0], up[1], up[2]); */
+}
+
+struct bmesh {
+	float *points;
+	float *colors;
+	float *normals;
+	unsigned vao;
+	unsigned npoints;
+} tri;
+
+static void
+bmesh_init(struct bmesh *bmesh)
+{
+	unsigned points_vbo, normals_vbo;
+	glGenVertexArrays(1, &bmesh->vao);
+
+	glGenBuffers(1, &points_vbo);
+	glGenBuffers(1, &normals_vbo);
+	glBindVertexArray(bmesh->vao);
+
+	glBindBuffer(GL_ARRAY_BUFFER, points_vbo);
+	glBufferData(GL_ARRAY_BUFFER, bmesh->npoints * 3 * sizeof(float), bmesh->points, GL_STATIC_DRAW);
+	glVertexAttribPointer(positionLoc, 3, GL_FLOAT, GL_FALSE, 0, NULL);
+
+	glBindBuffer(GL_ARRAY_BUFFER, normals_vbo);
+	glBufferData(GL_ARRAY_BUFFER, bmesh->npoints * 3 * sizeof(float), bmesh->normals, GL_STATIC_DRAW);
+	glVertexAttribPointer(normalLoc, 3, GL_FLOAT, GL_FALSE, 0, NULL);
+
+	glEnableVertexAttribArray(positionLoc);
+	glEnableVertexAttribArray(normalLoc);
+	GL_DEBUG("bmesh_init");
+}
+
+static void
+bmesh_render(struct bmesh *bmesh)
+{
+	glm_mat4_identity(modelm);
+	glUniformMatrix4fv(modelLoc, 1, 0, &modelm[0][0]);
+	glBindVertexArray(bmesh->vao);
+	glDrawArrays(GL_TRIANGLES, 0, 3);
+	GL_DEBUG("bmesh_render");
 }
 
 void
 display() {
+	/* float projMatrix[16], viewMatrix[16]; */
+
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	glMatrixMode(GL_MODELVIEW);
+	/* glUseProgram(sprog); */
+	/* glGetFloatv(GL_PROJECTION_MATRIX, projMatrix); */
+	/* glGetFloatv(GL_MODELVIEW_MATRIX, viewMatrix); */
+	/* glUniformMatrix4fv(projMatrixLoc, 1, 0, projMatrix); */
+	/* glUniformMatrix4fv(viewMatrixLoc, 1, 0, viewMatrix); */
 
 	/* glutSolidTeapot(.5); */
-	glCallList(fox.dl);
-	glCallList(chunk.dl);
+	/* glCallList(fox.dl); */
+	model_render(&fox);
+	GL_DEBUG("before chunks_render");
 	chunks_render();
+	GL_DEBUG("before bmesh_render");
+	bmesh_render(&tri);
 
 	glFlush();
 }
@@ -170,6 +237,90 @@ tick_get()
 
 float cam_speed = 6.0;
 float cam_aspeed = 0.8;
+
+static unsigned
+shader_load(char *fname, int type)
+{
+	unsigned shader;
+	int success, fd = open(fname, O_RDONLY);
+	struct stat stat;
+	char *source;
+
+	CBUG(fd < 0);
+
+	success = !fstat(fd, &stat);
+	CBUG(!success);
+
+	source = mmap(NULL, stat.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
+	CBUG(!source);
+
+	shader = glCreateShader(type);
+	glShaderSource(shader, 1, (const char * const *) &source, NULL);
+	glCompileShader(shader);
+	glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
+
+	if (!success) {
+		char infolog[512];
+
+		glGetShaderInfoLog(shader, sizeof(infolog), NULL, infolog);
+		BUG("Error compiling shader %s: %s", fname, infolog);
+	}
+
+	munmap(source, stat.st_size);
+	return shader;
+}
+
+unsigned
+sprog_load() {
+	unsigned vert = shader_load("test.vert.glsl", GL_VERTEX_SHADER);
+	unsigned frag = shader_load("test.frag.glsl", GL_FRAGMENT_SHADER);
+	unsigned prog = glCreateProgram();
+	int success;
+
+	glAttachShader(prog, vert);
+	glAttachShader(prog, frag);
+	/* glBindAttribLocation(prog, 0, "position"); */
+	/* glBindFragDataLocation(prog, 0, "fragColor"); */
+	glLinkProgram(prog);
+
+	glGetProgramiv(prog, GL_LINK_STATUS, &success);
+
+	if (!success) {
+		char infolog[512];
+		glGetProgramInfoLog(prog, sizeof(infolog), NULL, infolog);
+		BUG("Error linking sprog: %s", infolog);
+	}
+
+	positionLoc = glGetAttribLocation(prog, "coord3d");
+	normalLoc = glGetAttribLocation(prog, "aNormal");
+	texCoordLoc = glGetAttribLocation(prog, "aTexCoord");
+	modelLoc = glGetUniformLocation(prog, "model");
+	viewLoc = glGetUniformLocation(prog, "view");
+	projectionLoc = glGetUniformLocation(prog, "projection");
+
+	lightPosLoc = glGetUniformLocation(prog, "lightPos");
+	viewPosLoc = glGetUniformLocation(prog, "viewPos");
+	lightColorLoc = glGetUniformLocation(prog, "lightColor");
+	objectColorLoc = glGetUniformLocation(prog, "objectColor");
+
+	objectTextureLoc = glGetUniformLocation(prog, "objectTexture");
+
+	CBUG(glGetError());
+	CBUG(positionLoc < 0);
+
+	glUseProgram(prog);
+	glDeleteShader(vert);
+	glDeleteShader(frag);
+	CBUG(glGetError());
+
+	glUniform1i(objectTextureLoc, 0);
+	/* vertexLoc = glGetAttribLocation(prog, "position"); */
+	/* colorLoc = glGetAttribLocation(prog, "color"); */
+
+	/* projMatrixLoc = glGetUniformLocation(prog, "projMatrix"); */
+	/* viewMatrixLoc = glGetUniformLocation(prog, "viewMatrix"); */
+	return prog;
+}
 
 void
 update() {
@@ -263,20 +414,70 @@ key_down(unsigned char key, int x, int y)
 		keymap[toupper(key)] = 0;
 }
 
+static void
+tri_init()
+{
+	tri.npoints = 3;
+	tri.points = malloc(sizeof(float) * tri.npoints * 3);
+	tri.normals = malloc(sizeof(float) * tri.npoints * 3);
+	tri.colors = malloc(sizeof(float) * tri.npoints * 3);
+
+	tri.points[0] = -0.5;
+	tri.points[1] = -0.5;
+	tri.points[2] = 0;
+	tri.normals[0] = 0.0;
+	tri.normals[1] = 0.0;
+	tri.normals[2] = -1.0;
+
+	tri.points[3] = 0.5;
+	tri.points[4] = -0.5;
+	tri.points[5] = 0;
+	tri.normals[3] = 0.0;
+	tri.normals[4] = 0.0;
+	tri.normals[5] = -1.0;
+
+	tri.points[6] = 0;
+	tri.points[7] = 0.5;
+	tri.points[8] = 0;
+	tri.normals[6] = 0.0;
+	tri.normals[7] = 0.0;
+	tri.normals[8] = -1.0;
+
+	tri.colors[0] = tri.colors[1] = tri.colors[2]
+		= tri.colors[3] = tri.colors[4] = tri.colors[5]
+		= tri.colors[6] = tri.colors[7] = tri.colors[8] = 1.0f;
+
+	bmesh_init(&tri);
+}
+
 int
 main(int argc, char *argv[])
 {
-	vec4 light_pos = { 0.0, 10.0, 0.0, 0.0 };
+	vec4 light_pos = { 0.0, 400.0, 0.0, 0.0 };
 	/* sleep(1); */
 	sock_init();
 	gl_init(argc, argv);
+	glewInit();
+	glg_init();
+	sprog = sprog_load();
+	glm_mat4_identity(modelm);
+	glUniformMatrix4fv(modelLoc, 1, 0, &modelm[0][0]);
+	glUniform3fv(lightPosLoc, 1, light_pos);
+	glUniform3fv(viewPosLoc, 1, cam.position);
+	vec3 light_color = { 1.0f, 1.0f, 1.0f };
+	glUniform3fv(lightColorLoc, 1, light_color);
+	vec3 object_color = { 1.0f, 1.0f, 1.0f };
+	glUniform3fv(objectColorLoc, 1, object_color);
+
 	cam_init();
 	glEnable(GL_TEXTURE_2D);
 	glEnable(GL_DEPTH_TEST);
 	glEnable(GL_LIGHTING);
 	glEnable(GL_LIGHT0);
+	glActiveTexture(GL_TEXTURE0);
 	CBUG(model_load(&fox, "fox2.glb"));
 	chunks_init();
+	tri_init();
 	glLightfv(GL_LIGHT0, GL_POSITION, light_pos);
 
 	warn("OpenGL version: %s\n", glGetString(GL_VERSION));

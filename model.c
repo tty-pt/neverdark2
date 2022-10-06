@@ -1,11 +1,9 @@
 #include "model.h"
 
-#include <GL/freeglut.h>
 #define CGLTF_IMPLEMENTATION
 #include "cgltf/cgltf.h"
-#include "cglm/cglm.h"
-#define STB_IMAGE_IMPLEMENTATION
 #include "stb/stb_image.h"
+#include "cglm/cglm.h"
 #include "debug.h"
 
 static inline size_t
@@ -43,9 +41,9 @@ model_load(struct model *m, char *fname) {
 	cgltf_primitive *prim = &mesh->primitives[0];
 	/* cgltf_accessor *indices = prim->indices; */
 	warn("primitive type %u\n", prim->type);
-	vec3 *position = NULL, *p;
-	vec2 *texcoord = NULL, *tc;
-	vec3 *normal = NULL, *n;
+	vec3 *position = NULL;
+	vec2 *texcoord = NULL;
+	vec3 *normal = NULL;
 	int vertexCount;
 	/* CBUG(if (position_accessor->component_type == cgltf_component_type_r_16u)); */
 	for (int i = 0; i < prim->attributes_count; i++) {
@@ -73,36 +71,26 @@ model_load(struct model *m, char *fname) {
 		struct texture tex;
 
 		tex.data = stbi_load_from_memory(tview->buffer->data + tview->offset, tview->size, &tex.w, &tex.h, &tex.channels, 3);
-		glGenTextures(1, &m->texture_id);
-		glBindTexture(GL_TEXTURE_2D, m->texture_id);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, tex.w, tex.h, 0, GL_RGB, GL_UNSIGNED_BYTE, tex.data);
-		stbi_image_free(tex.data);
-		/* glGenerateMipmap(GL_TEXTURE_2D); */
+		glActiveTexture(GL_TEXTURE0);
+		m->texture_id = glg_texture_load(&tex);
 	} else {
 		m->texture_id = TEX_INVALID;
 	}
 
-	m->dl = glGenLists(1);
-	glNewList(m->dl, GL_COMPILE);
-	glShadeModel(GL_SMOOTH);
-	glBegin(GL_TRIANGLES);
-	if (tex_r)
-		glBindTexture(GL_TEXTURE_2D, m->texture_id);
-
-	for (p = position, tc = texcoord, n = normal;
-	     p < position + vertexCount;
-	     p ++, tc ++, n++)
 	{
-		glTexCoord2fv(*tc);
-		glNormal3fv(*n);
-		glVertex3fv(*p);
+		cgl_prebind(&m->gl, 1);
+		m->gl.npoints = vertexCount;
+		cgl_bind(&m->gl, position, normal, texcoord);
 	}
-
-	glEnd();
-	glEndList();
 
 	return 0;
 }
 
+void
+model_render(struct model *m)
+{
+	if (m->texture_id != TEX_INVALID)
+		glBindTexture(GL_TEXTURE_2D, m->texture_id);
+	glBindVertexArray(m->gl.vao);
+	glDrawArrays(GL_TRIANGLES, 0, m->gl.npoints);
+}

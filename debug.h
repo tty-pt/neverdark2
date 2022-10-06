@@ -18,5 +18,12 @@
 #define BREAK raise(SIGINT)
 #endif
 
+#define GL_DEBUG(str) { \
+	GLenum err; \
+	while ((err = glGetError()) != GL_NO_ERROR) { \
+		warn("OpenGL error %s: %d\n", str, err); \
+	} \
+}
+
 #endif
 

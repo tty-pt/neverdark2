@@ -3,6 +3,7 @@
 
 #include <cglm/cglm.h>
 #include "noise.h"
+#include "gl_global.h"
 
 #define CHUNK_Y 7
 #define CHUNK_SIZE (1 << CHUNK_Y)
@@ -21,7 +22,7 @@ struct chunk {
 	noise_t m[CHUNK_M];
 	vec3 vertices[CHUNK_M];
 	vec3 normals[CHUNK_M];
-	int dl[9];
+	cgl_t gl[9];
 };
 
 void chunks_init();
