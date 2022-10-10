@@ -174,7 +174,6 @@ display() {
 	/* glUniformMatrix4fv(viewMatrixLoc, 1, 0, viewMatrix); */
 
 	/* glutSolidTeapot(.5); */
-	/* glCallList(fox.dl); */
 	model_render(&fox);
 	GL_DEBUG("before chunks_render");
 	chunks_render();
