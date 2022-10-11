@@ -89,8 +89,11 @@ model_load(struct model *m, char *fname) {
 void
 model_render(struct model *m)
 {
+	glm_mat4_identity(modelm);
+	glUniformMatrix4fv(modelLoc, 1, 0, &modelm[0][0]);
 	if (m->texture_id != TEX_INVALID)
 		glBindTexture(GL_TEXTURE_2D, m->texture_id);
 	glBindVertexArray(m->gl.vao);
 	glDrawArrays(GL_TRIANGLES, 0, m->gl.npoints);
+	GL_DEBUG("model_render");
 }

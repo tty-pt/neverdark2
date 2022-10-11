@@ -13,6 +13,7 @@ mat4 modelm = {
 unsigned modelLoc = 0;
 unsigned positionLoc, normalLoc, texCoordLoc;
 unsigned white_texture;
+GLFWwindow *glfw_window = NULL;
 
 unsigned
 glg_texture_load(struct texture *tex)
@@ -30,9 +31,23 @@ glg_texture_load(struct texture *tex)
 }
 
 void
-glg_init()
+glg_init(int w, int h)
 {
+	CBUG(!glfwInit());
+	glfw_window = glfwCreateWindow(w, h, "Neverdark2 client", NULL, NULL);
+	CBUG(!glfw_window);
+	glfwMakeContextCurrent(glfw_window);
+	glfwSwapInterval(1);
+	gladLoadGLES2(glfwGetProcAddress);
+
 	struct texture tex;
 	tex.data = stbi_load("white.png", &tex.w, &tex.h, &tex.channels, 3);
 	white_texture = glg_texture_load(&tex);
+}
+
+void
+glg_destroy()
+{
+	glfwDestroyWindow(glfw_window);
+	glfwTerminate();
 }

@@ -2,8 +2,9 @@
 #define GL_GLOBAL_H
 
 #include <cglm/cglm.h>
-#include <GL/glew.h>
-#include <GL/glut.h>
+#include <glad/gles2.h>
+#define GLFW_INCLUDE_NONE
+#include <GLFW/glfw3.h>
 
 #define TEX_INVALID ((unsigned) -1)
 
@@ -21,6 +22,7 @@ extern mat4 modelm;
 extern unsigned modelLoc;
 extern unsigned positionLoc, normalLoc, texCoordLoc;
 extern unsigned white_texture;
+extern GLFWwindow *glfw_window;
 
 static inline void
 cgl_prebind(cgl_t *cgl, int flags)
@@ -58,6 +60,7 @@ cgl_bind(cgl_t *cgl, vec3 *points, vec3 *normals, vec2 *tex_coords)
 }
 
 void glg_init();
+void glg_destroy();
 unsigned glg_texture_load(struct texture *tex);
 
 #endif

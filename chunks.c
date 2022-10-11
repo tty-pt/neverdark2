@@ -771,7 +771,6 @@ chunk_render(int16_t *pv, void *ptr) {
 	}
 
 	chunk = ptr;
-	glPushMatrix();
 
 	glm_mat4_identity(modelm);
 	vec3 translation = { chunk->pos[0], 0, chunk->pos[1] };
@@ -816,8 +815,6 @@ chunk_render(int16_t *pv, void *ptr) {
 		glDrawArrays(GL_TRIANGLE_STRIP, 0, 6);
 		glDrawArrays(GL_TRIANGLE_STRIP, 6, 6);
 	}
-
-	glPopMatrix();
 
 	GL_DEBUG("chunk_render");
 }
